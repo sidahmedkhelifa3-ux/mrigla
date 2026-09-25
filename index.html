@@ -160,6 +160,7 @@
 <script src="config.js"></script>
 <script src="common.js"></script>
 <script src="decoder.js"></script>
+<script src="label-parser.js"></script>
 <script src="ocr.js"></script>
 <script src="store.js"></script>
 <script src="scanner.js"></script>
@@ -183,6 +184,7 @@ window.addEventListener("load", function(){
 
   // Each local script defines one global; an absent global means a 404.
   [["common.js","PDZ"], ["decoder.js","FastDecoder"], ["ocr.js","TagOCR"],
+   ["label-parser.js","LabelParser"],
    ["store.js","Store"], ["config.js","PYJAMADZ_CONFIG"]].forEach(function(p){
     if(typeof window[p[1]] === "undefined") missing.push(p[0]);
   });

@@ -157,21 +157,39 @@
 
   /* The frame captured at the instant the barcode was decoded. Grabbing
      it later means grabbing whatever the phone is pointed at by then. */
-  var shotCode = null, shotCanvas = null;
+  var shotCode = null, shotCanvas = null, shotBox = null;
 
-  function grabShot(code){
+  /* The barcode's bounding box, in normalised frame coordinates, is the
+     spatial anchor: capture() crops the label region around it so OCR
+     sees the tag and not the whole room. */
+  function grabShot(code, box){
     if(!(decoder && running)) return;
-    var c = decoder.capture(1800);
-    if(c){ shotCode = code; shotCanvas = c; }
+    var c = decoder.capture(1400, box || null);
+    if(c){ shotCode = code; shotCanvas = c; shotBox = box || null; }
   }
 
   function ocrSource(){
     if(current && shotCode === current.code && shotCanvas) return shotCanvas;
     if(decoder && running){
-      var c = decoder.capture(1800);
+      var c = decoder.capture(1400, (current && current.box) || null);
       if(c) return c;
     }
     return lastStill;
+  }
+
+  /* The barcode box expressed in the CROP's coordinate space, so the
+     parser can measure "how far is this line from the bars". */
+  function boxInCrop(src){
+    var box = (current && current.box) || shotBox;
+    if(!box) return null;
+    var r = src && src.__region;
+    if(!r || !r.w || !r.h) return box;
+    return {
+      x: (box.x - r.x) / r.w,
+      y: (box.y - r.y) / r.h,
+      w: box.w / r.w,
+      h: box.h / r.h
+    };
   }
 
   function markPrefilled(id, value){
@@ -205,12 +223,45 @@
     $("btnOcr").disabled = true;
     $("ocrNote").textContent = "loading the text reader…";
 
-    TagOCR.read(src, code, function(stage, p){
+    var onStage = function(stage, p){
       var pct = p ? " " + Math.round(p * 100) + "%" : "";
       $("ocrNote").textContent = String(stage).replace(/_/g, " ") + pct;
+    };
+
+    /* One OCR pass over the cropped label, then the deterministic
+       SmartLabelParser. No model, no network — regex, keywords and the
+       geometry of each line relative to the barcode. */
+    TagOCR.readLines(src, onStage).then(function(ocr){
+      var structured = LabelParser.parse({
+        barcode: code,
+        barcodeBox: boxInCrop(src),
+        lines: ocr.lines
+      });
+      // keep the legacy brand/Arabic reading, which the parser does not do
+      var legacy = TagOCR.parse(ocr.text, code);
+
+      return {
+        brand:  legacy.brand,
+        name:   structured.productName || legacy.name,
+        sku:    structured.productCode || legacy.sku,
+        price:  structured.price != null ? structured.price : legacy.price,
+        digits: legacy.digits,
+        lines:  ocr.lines,
+        confidence: structured.confidence,
+        structured: structured
+      };
     }).then(function(found){
       $("btnOcr").disabled = false;
       if(!current || current.code !== code) return;   // they moved on
+
+      lastResult = {
+        barcode: code,
+        productCode: found.sku || null,
+        productName: found.name || null,
+        price: found.price != null ? found.price : null,
+        brand: found.brand || null,
+        confidence: found.confidence
+      };
 
       var filled = [];
       if(markPrefilled("newBrand", found.brand)) filled.push("brand");
@@ -221,6 +272,7 @@
       if(found.brand && current) current.brand = found.brand;
       if(found.sku && current) current.sku = found.sku;
       updateSmartHud(code, found.brand, found.sku, found.price);
+      showConfidence(found.confidence);
 
       if(filled.length){
         // Put it on the ticket too, so the camera visibly read the name & brand
@@ -266,6 +318,28 @@
   }
 
   function global_TagOCR(){ return typeof TagOCR !== "undefined" && TagOCR && TagOCR.available; }
+
+  /* The last structured result, in the shape the spec asks for:
+     { barcode, productCode, productName, price, confidence } */
+  var lastResult = null;
+  function scanResult(){ return lastResult; }
+
+  /* Never silently guess. Below 0.7 the fields are shown as a proposal
+     that has to be looked at; above it, they read as confirmed. */
+  var CONF_FLOOR = 0.7;
+  function showConfidence(c){
+    var el = $("ocrNote");
+    if(typeof c !== "number") return;
+    var low = c < CONF_FLOOR;
+    if($("tSub")) $("tSub").textContent = low
+      ? "read from the tag — low confidence, check before saving"
+      : "read from the tag — tap Save to keep it";
+    if(el) el.setAttribute("data-conf", low ? "low" : "ok");
+    ["newBrand","newName","newSku","newPrice"].forEach(function(id){
+      var f = $(id);
+      if(f && f.classList.contains("prefilled")) f.classList.toggle("lowconf", low);
+    });
+  }
 
   $("btnOcr").addEventListener("click", function(){ readTag(false); });
 
@@ -330,13 +404,16 @@
   }
 
   /* ================= accept a code ================= */
-  var lastCode = "", lastAt = 0;
-  function accept(code, format, quiet, ocrPreload){
+  var lastCode = "", lastAt = 0, pendingBox = null;
+  function accept(code, format, box, quiet, ocrPreload){
     code = String(code).trim();
     if(!code || !store) return;
     var now = Date.now();
     if(code === lastCode && now - lastAt < 2500 && !ocrPreload) return;   // one tag, one count
     lastCode = code; lastAt = now;
+    // keep the barcode's box: it anchors the OCR crop and the parser
+    if(box && current && current.code === code) current.box = box;
+    pendingBox = box || null;
 
     var item = catalog[code];
     if(!quiet){ hit(); beep(!!item); }
@@ -382,7 +459,7 @@
           " read from the tag. <em>Tap Save to keep it.</em>");
     } else if(!ocrDoneFor[code]){
       ocrDoneFor[code] = true;
-      grabShot(code);
+      grabShot(code, pendingBox);          // crop the label around the bars
       say("<b>" + esc(code) + "</b> — reading the name on the tag…");
       setTimeout(function(){ readTag(true); }, 60);
     } else {
@@ -556,7 +633,7 @@
         var code = barCode || (ocrRes && ocrRes.digits) || null;
         var fmt = (barHit && barHit.format) || (code ? PDZ.guessFormat(code) : "");
         if(code){
-          accept(code, fmt, false, ocrRes);
+          accept(code, fmt, (barHit && barHit.box) || null, false, ocrRes);
         } else {
           say("<b>No tag recognized.</b> Move camera closer to the barcode & label.", true);
         }
@@ -595,17 +672,17 @@
       if(hit && hit.text){
         if(global_TagOCR()){
           TagOCR.read(img, hit.text).then(function(ocrRes){
-            accept(hit.text, hit.format, false, ocrRes);
+            accept(hit.text, hit.format, hit.box || null, false, ocrRes);
           }).catch(function(){
-            accept(hit.text, hit.format);
+            accept(hit.text, hit.format, hit.box || null);
           });
         } else {
-          accept(hit.text, hit.format);
+          accept(hit.text, hit.format, hit.box || null);
         }
       } else if(global_TagOCR()){
         TagOCR.read(img, null).then(function(ocrRes){
           if(ocrRes && ocrRes.digits){
-            accept(ocrRes.digits, PDZ.guessFormat(ocrRes.digits), false, ocrRes);
+            accept(ocrRes.digits, PDZ.guessFormat(ocrRes.digits), null, false, ocrRes);
           } else {
             say("<b>No barcode found in that photo.</b> Fill more of the frame with the tag, keep the bars straight, and avoid glare.", true);
           }
@@ -630,7 +707,7 @@
     var v = $("manualCode").value.replace(/\D/g,"");
     if(v.length < 6){ say("<b>Too short.</b> Type every digit printed under the bars.", true); return; }
     lastCode = "";
-    accept(v, PDZ.guessFormat(v), true);
+    accept(v, PDZ.guessFormat(v), null, true);
     $("manualCode").value = "";
   }
   $("manualGo").addEventListener("click", manualGo);

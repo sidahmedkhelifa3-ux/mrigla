@@ -288,6 +288,14 @@ input[type="text"],input[type="number"]{
 input.ar-input{font-family:var(--ar)}
 
 /* a value OCR suggested — visibly not yet confirmed by a person */
+/* Low confidence: the parser is unsure, so the field reads as a
+   proposal to check rather than an answer. Never a silent guess. */
+input.prefilled.lowconf{
+  border-color:color-mix(in srgb,var(--laser) 55%,transparent);
+  background:color-mix(in srgb,var(--laser) 8%,var(--paper));
+}
+.ocrNote[data-conf="low"] b{color:var(--laser)}
+
 input.prefilled{
   border-color:color-mix(in srgb,var(--warn) 55%,transparent);
   background:color-mix(in srgb,var(--warn) 9%,var(--paper));

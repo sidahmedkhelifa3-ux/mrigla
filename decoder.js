@@ -190,11 +190,65 @@
 
   /* ---------- decode whatever is on the canvas ---------- */
 
-  FastDecoder.prototype._decode = function(){
+  /* Map a box in CANVAS pixels back to normalised frame coordinates,
+     undoing the crop, the scale and the rotation of the pass it came
+     from. This is what lets the barcode act as a spatial anchor for
+     OCR: without it, "near the barcode" has no meaning. */
+  function mapBox(p, c, box){
+    if(!box || !c.width || !c.height) return null;
+    var nx, ny, nw, nh;
+    if(p.rot === 0){
+      nx = box.x / c.width;  ny = box.y / c.height;
+      nw = box.w / c.width;  nh = box.h / c.height;
+    } else if(p.rot === 90){
+      // drawn with translate(dh,0) + rotate(90°): canvas(cx,cy) <- image(cy, dh-cx)
+      nx = box.y / c.height;
+      ny = 1 - (box.x + box.w) / c.width;
+      nw = box.h / c.height;
+      nh = box.w / c.width;
+    } else {
+      return { x: p.x, y: p.y, w: p.w, h: p.h, approx: true };   // tilted: use the window
+    }
+    return {
+      x: p.x + nx * p.w,
+      y: p.y + ny * p.h,
+      w: nw * p.w,
+      h: nh * p.h
+    };
+  }
+
+  function pointsBox(points){
+    if(!points || !points.length) return null;
+    var xs = [], ys = [];
+    for(var i = 0; i < points.length; i++){
+      var pt = points[i];
+      if(!pt) continue;
+      var x = typeof pt.getX === "function" ? pt.getX() : pt.x;
+      var y = typeof pt.getY === "function" ? pt.getY() : pt.y;
+      if(typeof x === "number" && typeof y === "number"){ xs.push(x); ys.push(y); }
+    }
+    if(!xs.length) return null;
+    var x0 = Math.min.apply(null, xs), x1 = Math.max.apply(null, xs);
+    var y0 = Math.min.apply(null, ys), y1 = Math.max.apply(null, ys);
+    // 1D result points sit on the centre line: give the box real height
+    var h = Math.max(y1 - y0, (x1 - x0) * 0.22);
+    return { x: x0, y: y0 - (h - (y1 - y0)) / 2, w: x1 - x0, h: h };
+  }
+
+  FastDecoder.prototype._decode = function(pass){
+    var self = this;
     if(this.native){
       return this.native.detect(this.canvas).then(function(res){
         if(res && res.length){
-          return { text: res[0].rawValue, format: (res[0].format || "").toUpperCase() };
+          var r0 = res[0];
+          var bb = r0.boundingBox;
+          var box = bb ? { x: bb.x, y: bb.y, w: bb.width, h: bb.height }
+                       : pointsBox(r0.cornerPoints);
+          return {
+            text: r0.rawValue,
+            format: (r0.format || "").toUpperCase(),
+            box: mapBox(pass, self.canvas, box)
+          };
         }
         return null;
       }).catch(function(){ return null; });
@@ -206,10 +260,16 @@
           var src = new Z.HTMLCanvasElementLuminanceSource(this.canvas);
           var bmp = new Z.BinaryBitmap(new Z.HybridBinarizer(src));
           var r = this.zxing.reader.decodeWithState(bmp);
-          if(r) return Promise.resolve({ text: r.getText(), format: fmtName(r) });
+          if(r) return Promise.resolve({
+            text: r.getText(), format: fmtName(r),
+            box: mapBox(pass, this.canvas, pointsBox(r.getResultPoints && r.getResultPoints()))
+          });
         } else {
           var r2 = this.zxing.reader.decodeFromCanvas(this.canvas);
-          if(r2) return Promise.resolve({ text: r2.getText(), format: fmtName(r2) });
+          if(r2) return Promise.resolve({
+            text: r2.getText(), format: fmtName(r2),
+            box: mapBox(pass, this.canvas, pointsBox(r2.getResultPoints && r2.getResultPoints()))
+          });
         }
       }catch(e){ /* NotFound on most passes — the normal path */ }
       return Promise.resolve(null);
@@ -244,18 +304,40 @@
   FastDecoder.prototype.zoomRange = function(){ return this.zoomCaps; };
   FastDecoder.prototype.getZoom   = function(){ return this.zoom; };
 
-  /* A still of the current frame, for reading the printed text on the
-     tag. Full frame: the name and price sit beside the bars, not
-     inside the window the barcode was found in. */
-  FastDecoder.prototype.capture = function(maxEdge){
+  /* A still for OCR. Given the barcode's box, crop a generous region
+     AROUND it — the label — instead of the whole picture: fewer pixels
+     for OCR to chew through, and nothing from the background to
+     misread. The margin is deliberately wide and equal on all sides,
+     because the reference may be printed above, below or beside the
+     bars depending on the label. Returns the canvas plus the mapping
+     needed to express OCR boxes in the same space as the barcode. */
+  FastDecoder.prototype.capture = function(maxEdge, box){
     var v = this.video;
     if(!v || !v.videoWidth) return null;
-    var cap = maxEdge || 1800;
-    var scale = Math.min(1, cap / Math.max(v.videoWidth, v.videoHeight));
+
+    var vw = v.videoWidth, vh = v.videoHeight;
+    var sx = 0, sy = 0, sw = vw, sh = vh;
+
+    if(box && box.w > 0 && box.h > 0){
+      // grow the barcode box into a label-sized region
+      var padX = Math.max(box.w * 0.8, 0.18);
+      var padY = Math.max(box.h * 3.2, 0.30);
+      var x0 = Math.max(0, box.x - padX), x1 = Math.min(1, box.x + box.w + padX);
+      var y0 = Math.max(0, box.y - padY), y1 = Math.min(1, box.y + box.h + padY);
+      sx = Math.round(x0 * vw); sy = Math.round(y0 * vh);
+      sw = Math.max(32, Math.round((x1 - x0) * vw));
+      sh = Math.max(32, Math.round((y1 - y0) * vh));
+    }
+
+    var cap = maxEdge || 1400;
+    var scale = Math.min(1, cap / Math.max(sw, sh));
     var c = document.createElement("canvas");
-    c.width  = Math.max(1, Math.round(v.videoWidth  * scale));
-    c.height = Math.max(1, Math.round(v.videoHeight * scale));
-    c.getContext("2d").drawImage(v, 0, 0, c.width, c.height);
+    c.width  = Math.max(1, Math.round(sw * scale));
+    c.height = Math.max(1, Math.round(sh * scale));
+    c.getContext("2d").drawImage(v, sx, sy, sw, sh, 0, 0, c.width, c.height);
+
+    // where this crop sits in the full frame, so boxes can be compared
+    c.__region = { x: sx / vw, y: sy / vh, w: sw / vw, h: sh / vh };
     return c;
   };
 
@@ -401,8 +483,12 @@
       var q = this._measure();
       if(q){ this._autoTorch(q); this._coach(q); }
     }
-    return this._decode().then(function(hit){
-      if(hit){ self.bestPass = idx; return hit; }
+    return this._decode(p).then(function(hit){
+      if(hit){
+        self.bestPass = idx;
+        if(!hit.box) hit.box = { x: p.x, y: p.y, w: p.w, h: p.h, approx: true };
+        return hit;
+      }
       return self._sweep(t0, tried + 1);
     });
   };
@@ -423,7 +509,8 @@
       if(hit && hit.text){
         self.lastHitAt = performance.now();
         self.lastHint = "";
-        if(self._confirm(hit) && self.onHit) self.onHit(hit.text, hit.format);
+        // the box is the spatial anchor OCR crops around
+        if(self._confirm(hit) && self.onHit) self.onHit(hit.text, hit.format, hit.box);
       } else if(!self.widened && performance.now() - self.startedAt > WIDEN_MS &&
                 performance.now() - self.lastHitAt > WIDEN_MS){
         self._widen().then(function(){

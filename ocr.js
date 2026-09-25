@@ -207,12 +207,58 @@
     };
   }
 
+  /* ---------- geometry ----------
+     The SmartLabelParser scores candidates partly on WHERE they sit
+     relative to the barcode, so OCR has to hand back boxes, not just
+     text. Tesseract nests them block > paragraph > line > word; walk
+     whichever depth this build provides and normalise to 0..1 of the
+     image so they can be compared with the barcode's box. */
+
+  function collectLines(data, imgW, imgH){
+    var out = [];
+    if(!data) return out;
+    var W = imgW || data.width || 1, H = imgH || data.height || 1;
+
+    function push(node){
+      if(!node || !node.bbox) return;
+      var t = String(node.text == null ? "" : node.text).replace(/\s+/g, " ").trim();
+      if(!t) return;
+      var b = node.bbox;
+      out.push({
+        text: t,
+        box: { x: b.x0 / W, y: b.y0 / H, w: (b.x1 - b.x0) / W, h: (b.y1 - b.y0) / H },
+        conf: typeof node.confidence === "number" ? node.confidence : 80
+      });
+    }
+
+    if(data.lines && data.lines.length){
+      data.lines.forEach(push);
+      return out;
+    }
+    if(data.blocks && data.blocks.length){
+      data.blocks.forEach(function(bl){
+        (bl.paragraphs || []).forEach(function(pa){
+          (pa.lines || []).forEach(push);
+        });
+      });
+      if(out.length) return out;
+      // no line level: fall back to words
+      data.blocks.forEach(function(bl){
+        (bl.paragraphs || []).forEach(function(pa){
+          (pa.lines || []).forEach(function(ln){ (ln.words || []).forEach(push); });
+        });
+      });
+    }
+    return out;
+  }
+
   /* ---------- public ---------- */
 
   global.TagOCR = {
     available: true,
 
-    /* canvas | image | video frame -> {name, sku, price, digits, lines} */
+    /* source -> the legacy shape (brand/name/sku/price), for callers
+       that have not moved to the structured parser yet. */
     read: function(source, knownCode, onProgress){
       if(!source) return Promise.reject(new Error("nothing to read"));
       return ensure(onProgress).then(function(w){
@@ -223,8 +269,32 @@
       });
     },
 
+    /* source -> { text, lines:[{text,box,conf}] } — geometry included.
+       This is what the SmartLabelParser consumes. */
+    readLines: function(source, onProgress){
+      if(!source) return Promise.reject(new Error("nothing to read"));
+      return ensure(onProgress).then(function(w){
+        if(onProgress) onProgress("reading the tag", 0);
+        return w.recognize(source, {}, { text: true, blocks: true });
+      }).then(function(res){
+        var data = res && res.data ? res.data : {};
+        var W = source.width || source.naturalWidth || data.width;
+        var H = source.height || source.naturalHeight || data.height;
+        var lines = collectLines(data, W, H);
+        if(!lines.length && data.text){
+          // geometry unavailable in this build: text-only, parser still works
+          lines = String(data.text).split(/\r?\n/)
+            .map(function(t){ return t.replace(/\s+/g, " ").trim(); })
+            .filter(Boolean)
+            .map(function(t, i){ return { text: t, box: null, conf: 80, order: i }; });
+        }
+        return { text: data.text || "", lines: lines };
+      });
+    },
+
     /* Exposed so the parser can be exercised without loading Tesseract. */
     parse: parse,
+    collectLines: collectLines,
 
     warmUp: function(onProgress){ return ensure(onProgress); }
   };

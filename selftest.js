@@ -41,7 +41,9 @@ function makeEl(id){
     classList: {
       _s: new Set(),
       add(c){ this._s.add(c); }, remove(c){ this._s.delete(c); },
-      contains(c){ return this._s.has(c); }
+      contains(c){ return this._s.has(c); },
+      toggle(c, on){ if(on === undefined) on = !this._s.has(c);
+                     if(on) this._s.add(c); else this._s.delete(c); return on; }
     },
     attrs: {},
     setAttribute(k, v){ this.attrs[k] = String(v); },
@@ -123,9 +125,16 @@ function installFakeZXing(){
     const c = sandbox.__lastCanvas;
     if(c) zxSizes.push(c.width + "x" + c.height);
     if(zxHitOn && zxCalls === zxHitOn){
+      const c = sandbox.__lastCanvas || { width: 760, height: 200 };
+      // ZXing reports 1D result points on the barcode's centre line,
+      // in canvas pixels — a quarter to three-quarters across the middle
       return {
         getText: () => "4458534760123",
-        getBarcodeFormat: () => 1
+        getBarcodeFormat: () => 1,
+        getResultPoints: () => [
+          { getX: () => c.width * 0.25, getY: () => c.height * 0.5 },
+          { getX: () => c.width * 0.75, getY: () => c.height * 0.5 }
+        ]
       };
     }
     throw new Error("NotFoundException");
@@ -165,7 +174,7 @@ if(PAGE === "decoder") installFakeZXing();
 const FILES = PAGE === "database" ? ["common.js", "store.js", "database.js"]
             : PAGE === "decoder"  ? ["decoder.js"]
             : PAGE === "ocr"      ? ["ocr.js"]
-            : ["common.js", "decoder.js", "ocr.js", "store.js", "scanner.js"];
+            : ["common.js", "decoder.js", "label-parser.js", "ocr.js", "store.js", "scanner.js"];
 
 for(const f of FILES){
   try{
@@ -281,7 +290,7 @@ if(PAGE === "ocr"){
   tests.push(function startsOnTheZxingPath(done){
     dec = sandbox.FastDecoder.create(video);
     dec.start(stream,
-      (text, fmt) => hits.push({ text, fmt }),
+      (text, fmt, box) => hits.push({ text, fmt, box }),
       () => {},
       () => {},
       (z, caps) => zooms.push({ z, caps })
@@ -356,7 +365,36 @@ if(PAGE === "ocr"){
       if(!hits.length) return done("a hit on a later window never reached onHit");
       if(hits[0].text !== "4458534760123") return done("wrong code -> " + hits[0].text);
       if(hits[0].fmt !== "EAN_13") return done("wrong format -> " + hits[0].fmt);
+      done(null);
+    }, 500);
+  });
+
+  /* The barcode's box is the spatial anchor for OCR. It is produced in
+     the coordinates of whichever cropped, scaled, possibly rotated
+     window found the code, so it must come back as sane 0..1 frame
+     coordinates — otherwise "near the barcode" is meaningless. */
+  tests.push(function reportsAUsableBoundingBox(done){
+    hits = [];
+    zxCalls = 0;
+    zxHitOn = 3;
+    setTimeout(() => {
+      zxHitOn = 0;
       dec.stop();
+      if(!hits.length) return done("no hit to inspect");
+      const b = hits[0].box;
+      if(!b) return done("no bounding box was reported with the hit");
+      for(const k of ["x", "y", "w", "h"]){
+        if(typeof b[k] !== "number" || !isFinite(b[k]))
+          return done("box." + k + " is not a finite number -> " + b[k]);
+      }
+      if(b.w <= 0 || b.h <= 0) return done("box has no area -> " + JSON.stringify(b));
+      if(b.x < -0.01 || b.y < -0.01 || b.x + b.w > 1.01 || b.y + b.h > 1.01)
+        return done("box escapes the frame -> " + JSON.stringify(b));
+      if(b.approx)
+        return done("fell back to the whole window instead of mapping the result points");
+      // the points span half the window, so the box must be narrower than it
+      if(b.w > 0.9)
+        return done("box was not mapped back from canvas space -> " + JSON.stringify(b));
       done(null);
     }, 500);
   });
@@ -507,12 +545,18 @@ tests.push(function saveProduct(done){
    named — that is the whole point of it. And exactly once per code. */
 tests.push(function readsTheNameAutomatically(done){
   let reads = 0;
-  sandbox.TagOCR.read = function(){
+  // OCR now returns lines WITH geometry and the SmartLabelParser does the
+  // classifying, so the stub supplies boxes rather than pre-chewed fields.
+  sandbox.TagOCR.readLines = function(){
     reads++;
     return Promise.resolve({
-      brand: "Pyjama Dz",
-      name: "Pull", sku: "PULL AR-195", price: 1950,
-      digits: "1044797380876", lines: ["PULL AR-195", "1950 DA"]
+      text: "1044797380876\nPULL AR-195\n1950 DA\nPYJAMA DZ\n",
+      lines: [
+        { text: "1044797380876", box: { x:0.20, y:0.30, w:0.60, h:0.05 }, conf: 90 },
+        { text: "PULL AR-195",   box: { x:0.30, y:0.45, w:0.40, h:0.07 }, conf: 90 },
+        { text: "1950 DA",       box: { x:0.35, y:0.62, w:0.30, h:0.09 }, conf: 90 },
+        { text: "PYJAMA DZ",     box: { x:0.30, y:0.80, w:0.40, h:0.06 }, conf: 90 }
+      ]
     });
   };
 
@@ -539,7 +583,7 @@ tests.push(function readsTheNameAutomatically(done){
 
 tests.push(function doesNotRereadAKnownProduct(done){
   let reads = 0;
-  sandbox.TagOCR.read = function(){ reads++; return Promise.resolve({ lines: [] }); };
+  sandbox.TagOCR.readLines = function(){ reads++; return Promise.resolve({ text: "", lines: [] }); };
   // 4458534760123 was saved to the catalog by the saveProduct test above
   document.getElementById("manualCode").value = "4458534760123";
   document.getElementById("manualGo").dispatch("click");
