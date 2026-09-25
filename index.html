@@ -134,5 +134,65 @@
 <script src="ocr.js"></script>
 <script src="store.js"></script>
 <script src="scanner.js"></script>
+
+<!-- Deployment self-check. Inline and inline-styled on purpose: it has to
+     work on a page where the stylesheet itself failed to arrive. -->
+<script>
+window.addEventListener("load", function(){
+  var missing = [];
+
+  // Did the stylesheet actually apply? .wrap sets a max-width; if the
+  // computed value is still "none", styles.css never arrived.
+  var probe = document.createElement("div");
+  probe.className = "wrap";
+  probe.style.position = "absolute";
+  probe.style.visibility = "hidden";
+  document.body.appendChild(probe);
+  var styled = getComputedStyle(probe).maxWidth !== "none";
+  probe.parentNode.removeChild(probe);
+  if(!styled) missing.push("styles.css");
+
+  // Each local script defines one global; an absent global means a 404.
+  [["common.js","PDZ"], ["decoder.js","FastDecoder"], ["ocr.js","TagOCR"],
+   ["store.js","Store"], ["config.js","PYJAMADZ_CONFIG"]].forEach(function(p){
+    if(typeof window[p[1]] === "undefined") missing.push(p[0]);
+  });
+
+  if(!missing.length) return;
+
+  var base = location.href.replace(/[^\/]*$/, "");
+  var box = document.createElement("div");
+  box.setAttribute("style",
+    "position:fixed;inset:0;z-index:99999;overflow:auto;padding:24px 18px;" +
+    "background:#1a1512;color:#f6efe6;font:14px/1.55 system-ui,sans-serif");
+  box.innerHTML =
+    '<div style="max-width:620px;margin:0 auto">' +
+      '<h2 style="margin:0 0 6px;font-size:19px">Some files did not upload</h2>' +
+      '<p style="margin:0 0 16px;color:#c3b7a6">The page loaded, but the browser could not fetch ' +
+        missing.length + ' file' + (missing.length === 1 ? "" : "s") +
+        '. They must sit in the <b>same folder</b> as index.html.</p>' +
+      '<ul style="margin:0 0 18px;padding-left:20px">' +
+        missing.map(function(f){
+          return '<li style="margin-bottom:7px"><code style="background:#2c241e;padding:2px 6px;' +
+                 'border-radius:4px">' + f + '</code> &mdash; ' +
+                 '<a href="' + base + f + '" target="_blank" rel="noopener" ' +
+                 'style="color:#ffb37a">open it</a> to see the error</li>';
+        }).join("") +
+      '</ul>' +
+      '<p style="margin:0 0 10px;font-weight:600">Usual causes, most common first</p>' +
+      '<ol style="margin:0 0 18px;padding-left:20px;color:#c3b7a6">' +
+        '<li style="margin-bottom:7px"><b>Only some files were uploaded.</b> Upload the whole ' +
+          'folder, not just index.html &mdash; all 8 files together.</li>' +
+        '<li style="margin-bottom:7px"><b>The files sit in a sub-folder.</b> index.html and the ' +
+          'rest must be at the same level, not index.html at the top and the rest inside a folder.</li>' +
+        '<li style="margin-bottom:7px"><b>Capital letters.</b> Web servers are case-sensitive; ' +
+          'Windows is not. <code>Styles.css</code> works on your PC and 404s once deployed. ' +
+          'Every filename here is lower-case.</li>' +
+      '</ol>' +
+      '<p style="margin:0;color:#8e8272;font-size:12.5px">Looking in: <code>' + base + '</code></p>' +
+    '</div>';
+  document.body.appendChild(box);
+});
+</script>
 </body>
 </html>

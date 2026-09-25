@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="The Pyjama Dz scan list, product catalog, totals, printing and PDF export.">
+<meta name="theme-color" content="#F2EDE1">
+<title>Pyjama Dz Database</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📋</text></svg>">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Noto+Sans+Arabic:wght@400;600&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="wrap">
+  <header class="bar noprint">
+    <div class="mark">Pyjama&nbsp;Dz <small>database</small></div>
+    <div class="spacer"></div>
+    <span class="sync" id="sync" data-s="wait"><i></i><span id="syncLabel">starting</span></span>
+  </header>
+
+  <a class="bigLink noprint" href="index.html">
+    <span class="bigLink-go" aria-hidden="true">←</span>
+    <span class="bigLink-main">
+      <b>Back to the scanner</b>
+      <em>read another tag</em>
+    </span>
+  </a>
+
+  <div class="session noprint">
+    <div class="stat"><b id="sCount">0</b><em>pieces</em></div>
+    <div class="stat"><b id="sItems">0</b><em>products</em></div>
+    <div class="stat"><b id="sTotal">0</b><em>DA total</em></div>
+  </div>
+
+  <div class="controls noprint">
+    <button class="primary" id="btnPrint">Imprimer</button>
+    <button id="btnPdf">Export PDF</button>
+    <button class="ghost" id="btnCopy">Copy CSV</button>
+    <div class="spacer"></div>
+    <button class="tiny danger" id="btnClear">Clear list</button>
+  </div>
+
+  <p class="status noprint" id="status"><b>Loading…</b></p>
+
+  <div class="panel noprint" id="titlePanel">
+    <h3>Document title</h3>
+    <p>Goes at the top of the printed sheet and the PDF.</p>
+    <div class="inputs">
+      <input type="text" id="docTitle" placeholder="Inventaire — boutique" maxlength="60">
+    </div>
+  </div>
+
+  <div class="noprint">
+    <h2>Scan list</h2>
+    <div class="list" id="list"></div>
+  </div>
+
+  <div class="noprint">
+    <h2>Product catalog <span id="catCount" class="count"></span></h2>
+    <div class="list" id="catList"></div>
+  </div>
+
+  <div class="panel noprint" id="copyPanel" hidden>
+    <h3>Select and copy</h3>
+    <textarea id="copyBox" readonly></textarea>
+  </div>
+
+  <footer class="noprint">
+    <span id="footNote">Starting up…</span>
+  </footer>
+</div>
+
+<!-- Built fresh on every print / PDF. Hidden on screen. -->
+<div class="sheet" id="sheet" aria-hidden="true"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+<script src="config.js"></script>
+<script src="common.js"></script>
+<script src="store.js"></script>
+<script src="database.js"></script>
+
+<!-- Deployment self-check — see the note in index.html. -->
+<script>
+window.addEventListener("load", function(){
+  var missing = [];
+  var probe = document.createElement("div");
+  probe.className = "wrap";
+  probe.style.position = "absolute";
+  probe.style.visibility = "hidden";
+  document.body.appendChild(probe);
+  if(getComputedStyle(probe).maxWidth === "none") missing.push("styles.css");
+  probe.parentNode.removeChild(probe);
+
+  [["common.js","PDZ"], ["store.js","Store"], ["config.js","PYJAMADZ_CONFIG"]].forEach(function(p){
+    if(typeof window[p[1]] === "undefined") missing.push(p[0]);
+  });
+  if(!missing.length) return;
+
+  var base = location.href.replace(/[^\/]*$/, "");
+  var box = document.createElement("div");
+  box.setAttribute("style",
+    "position:fixed;inset:0;z-index:99999;overflow:auto;padding:24px 18px;" +
+    "background:#1a1512;color:#f6efe6;font:14px/1.55 system-ui,sans-serif");
+  box.innerHTML =
+    '<div style="max-width:620px;margin:0 auto">' +
+      '<h2 style="margin:0 0 6px;font-size:19px">Some files did not upload</h2>' +
+      '<p style="margin:0 0 16px;color:#c3b7a6">These must sit in the same folder as the page:</p>' +
+      '<ul style="margin:0 0 18px;padding-left:20px">' +
+        missing.map(function(f){
+          return '<li style="margin-bottom:7px"><code style="background:#2c241e;padding:2px 6px;' +
+                 'border-radius:4px">' + f + '</code> &mdash; ' +
+                 '<a href="' + base + f + '" target="_blank" rel="noopener" ' +
+                 'style="color:#ffb37a">open it</a> to see the error</li>';
+        }).join("") +
+      '</ul>' +
+      '<p style="margin:0;color:#8e8272;font-size:12.5px">Looking in: <code>' + base + '</code></p>' +
+    '</div>';
+  document.body.appendChild(box);
+});
+</script>
+</body>
+</html>
