@@ -100,7 +100,7 @@
     for(var i=0;i<scans.length;i++){
       var e = scans[i], c = e.code;
       if(!map[c]){
-        map[c] = { code:c, qty:0, ids:[], at:e.at, price:e.price, name:e.name, sku:e.sku };
+        map[c] = { code:c, qty:0, ids:[], at:e.at, price:e.price, name:e.name, sku:e.sku, brand:e.brand };
         order.push(c);          // scans arrive newest-first, so order is too
       }
       var g = map[c];
@@ -128,6 +128,7 @@
       pieces += g.qty;
       rows.push({
         code: g.code,
+        brand: it.brand || g.brand || "",
         name: it.name || g.name || "",
         nameAr: it.nameAr || "",
         sku: it.sku || g.sku || "",
@@ -142,10 +143,11 @@
   }
 
   function csv(rows){
-    var out = ["name,code,sku,qty,unit_price_da,line_total_da,last_scanned"];
+    var out = ["brand,name,code,sku,qty,unit_price_da,line_total_da,last_scanned"];
     for(var i=0;i<rows.length;i++){
       var r = rows[i];
       out.push([
+        '"' + String(r.brand || "").replace(/"/g,'""') + '"',
         '"' + String(r.name || "").replace(/"/g,'""') + '"',
         r.code,
         '"' + String(r.sku || "").replace(/"/g,'""') + '"',
@@ -155,7 +157,7 @@
         r.at || ""
       ].join(","));
     }
-    return out.join("\n");
+    return out.join("\\r\\n");
   }
 
   global.PDZ = {

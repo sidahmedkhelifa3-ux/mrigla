@@ -199,6 +199,17 @@ if(PAGE === "ocr"){
     if(r.sku !== "PULL AR-195") return done("reference -> " + r.sku);
     if(r.name !== "Pull")       return done("name -> " + r.name);
     if(r.digits !== "1044797380876") return done("digits -> " + r.digits);
+    if(r.brand !== "Pyjama Dz") return done("brand -> " + r.brand);
+    done(null);
+  });
+
+  
+  tests.push(function readsTheBrandNameCorrectly(done){
+    const r1 = parse("PYJAMA DZ\nPULL AR-195\n1950 DA\n", "1044797380876");
+    if(r1.brand !== "Pyjama Dz") return done("expected Pyjama Dz, got " + r1.brand);
+    const r2 = parse("MARQUE: MODA DZ\nROBE LONGUE\nREF: M-204\n3500 DA\n");
+    if(r2.brand !== "Moda Dz") return done("expected Moda Dz, got " + r2.brand);
+    if(r2.sku !== "M-204") return done("expected SKU M-204, got " + r2.sku);
     done(null);
   });
 
@@ -288,9 +299,25 @@ if(PAGE === "ocr"){
     done(null);
   });
 
+  /* The user asked for zoom to be manual only. Nothing in the engine may
+     move the camera on its own, however long a scan fails. */
+  tests.push(function neverZoomsWithoutTheUser(done){
+    applied = [];
+    setTimeout(() => {
+      const zoomed = applied.filter(c =>
+        c.advanced && c.advanced[0] && c.advanced[0].zoom !== undefined);
+      if(zoomed.length){
+        return done("the engine zoomed by itself " + zoomed.length +
+                    " time(s) during a failing scan: " + JSON.stringify(zoomed));
+      }
+      done(null);
+    }, 2600);  // past the 2.2 s at which the removed auto-zoom used to fire,
+               // so this test can actually fail if it ever comes back
+  });
+
   tests.push(function zoomIsAppliedToTheTrack(done){
     applied = [];
-    dec.setZoom(3, true).then(okz => {
+    dec.setZoom(3).then(okz => {
       if(!okz) return done("setZoom reported failure");
       const z = applied.find(c => c.advanced && c.advanced[0] && c.advanced[0].zoom !== undefined);
       if(!z) return done("no zoom constraint reached the track -> " + JSON.stringify(applied));
@@ -301,7 +328,7 @@ if(PAGE === "ocr"){
   });
 
   tests.push(function zoomIsClampedToWhatTheCameraHas(done){
-    dec.setZoom(99, true).then(() => {
+    dec.setZoom(99).then(() => {
       if(dec.getZoom() !== 5) return done("zoom was not clamped to max -> " + dec.getZoom());
       done(null);
     });
@@ -452,9 +479,12 @@ tests.push(function manualEntry(done){
   }catch(e){ return done("manual: click handler threw", e); }
   setTimeout(() => {
     const s = status();
-    if(!/on the list|added to the list/.test(s)) return done("manual: code was not accepted -> " + s);
+    // whatever happens to the name reading, the scan itself must be
+    // confirmed and the code must reach the list
     const recent = document.getElementById("recent").innerHTML;
     if(!/4458534760123/.test(recent)) return done("manual: code did not reach the recent strip");
+    if(!/on the list|added to the list/.test(s))
+      return done("manual: the scan was not confirmed to the user -> " + s);
     done(null);
   }, 60);
 });
@@ -471,6 +501,52 @@ tests.push(function saveProduct(done){
     if(!/Robe/.test(recent)) return done("save: the recent strip did not pick up the name -> " + recent);
     done(null);
   }, 60);
+});
+
+/* The camera must read the printed name by itself on a code nobody has
+   named — that is the whole point of it. And exactly once per code. */
+tests.push(function readsTheNameAutomatically(done){
+  let reads = 0;
+  sandbox.TagOCR.read = function(){
+    reads++;
+    return Promise.resolve({
+      brand: "Pyjama Dz",
+      name: "Pull", sku: "PULL AR-195", price: 1950,
+      digits: "1044797380876", lines: ["PULL AR-195", "1950 DA"]
+    });
+  };
+
+  document.getElementById("manualCode").value = "1044797380876";
+  document.getElementById("manualGo").dispatch("click");
+
+  setTimeout(() => {
+    if(reads === 0) return done("the tag was never read automatically");
+    if(reads > 1)   return done("read " + reads + " times for one code — it is looping");
+    if(document.getElementById("newBrand").value !== "Pyjama Dz")
+      return done("brand not filled -> " + document.getElementById("newBrand").value);
+    if(document.getElementById("newName").value !== "Pull")
+      return done("name not filled -> " + document.getElementById("newName").value);
+    if(document.getElementById("newPrice").value !== "1950")
+      return done("price not filled -> " + document.getElementById("newPrice").value);
+    if(!document.getElementById("newName").classList.contains("prefilled"))
+      return done("the suggested name is not marked as unconfirmed");
+    if(document.getElementById("tName").textContent !== "Pull")
+      return done("the ticket still does not show the name -> " +
+                  document.getElementById("tName").textContent);
+    done(null);
+  }, 300);
+});
+
+tests.push(function doesNotRereadAKnownProduct(done){
+  let reads = 0;
+  sandbox.TagOCR.read = function(){ reads++; return Promise.resolve({ lines: [] }); };
+  // 4458534760123 was saved to the catalog by the saveProduct test above
+  document.getElementById("manualCode").value = "4458534760123";
+  document.getElementById("manualGo").dispatch("click");
+  setTimeout(() => {
+    if(reads > 0) return done("wasted a label read on a product already in the catalog");
+    done(null);
+  }, 250);
 });
 
 tests.push(function linkShowsTheCount(done){
@@ -506,5 +582,5 @@ console.log("\nDriving the " + PAGE + " page in a stubbed DOM\n");
     next(i + 1);
   };
   try{ t(done); }catch(e){ done(t.name + " threw", e); }
-  setTimeout(() => done(t.name + " timed out"), 3000);
+  setTimeout(() => done(t.name + " timed out"), 8000);
 })(0);

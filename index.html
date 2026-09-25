@@ -29,6 +29,19 @@
       </svg>
       <p>Point it at the tag. It sweeps the whole picture at several zooms, so the barcode does not have to be centred or upright. Tap the picture to refocus.</p>
     </div>
+        <!-- Intelligent Camera Live HUD Overlay -->
+    <div class="smart-hud" id="smartHud" hidden>
+      <div class="smart-hud-title">
+        <span class="smart-hud-dot"></span>
+        <span>Caméra Intelligente</span>
+      </div>
+      <div class="smart-hud-chips">
+        <span class="hud-chip" id="hudBarcode"><b>Code:</b> <i id="hudValCode">—</i></span>
+        <span class="hud-chip" id="hudBrand"><b>Marque:</b> <i id="hudValBrand">—</i></span>
+        <span class="hud-chip" id="hudRef"><b>Réf:</b> <i id="hudValRef">—</i></span>
+        <span class="hud-chip" id="hudPrice"><b>Prix:</b> <i id="hudValPrice">—</i></span>
+      </div>
+    </div>
     <div class="reticle"><span></span><span></span><span></span><span></span></div>
     <div class="laser"></div>
     <div class="flash" id="flash"></div>
@@ -42,6 +55,8 @@
 
   <div class="controls">
     <button class="primary grow" id="btnStart">Start camera</button>
+    <button class="smart-btn" id="btnSmartScan" title="Scan intelligent (Code-barres + Marque + Référence)">⚡ Scan intelligent</button>
+    
     <button id="btnTorch" hidden>Torch</button>
     <label class="file" id="lblPhoto"><button class="ghost" tabindex="-1" aria-hidden="true">Scan a photo</button>
       <input type="file" id="filePhoto" accept="image/*" capture="environment" aria-label="Scan a barcode from a photo">
@@ -60,7 +75,11 @@
   </div>
 
   <section class="ticket" id="ticket">
-    <div class="brandline">
+        <div class="brandline">
+      <div class="brand-row" id="brandRow" hidden>
+        <span class="brand-badge-pill">Marque</span>
+        <span class="brand-badge-name" id="tBrand">—</span>
+      </div>
       <strong id="tName">Waiting for a scan</strong>
       <em id="tSub">nothing read yet</em>
     </div>
@@ -72,6 +91,13 @@
     </div>
 
     <hr class="dash">
+
+        <div class="field" id="fieldBrand" hidden>
+      <span class="pill">Marque</span>
+      <span class="val bold" id="tBrandField">—</span>
+    </div>
+
+    <hr class="dash" id="dashBrand" hidden>
 
     <div class="field" id="fieldName">
       <span class="pill ar">اسم المنتج</span>
@@ -95,12 +121,15 @@
       </div>
 
       <div class="inputs">
-        <input type="text" id="newName" placeholder="Product (Pull)">
-        <input type="text" id="newSku" placeholder="Reference (PULL AR-195)">
+        <input type="text" id="newBrand" placeholder="Marque / Brand (ex: Pyjama Dz)">
+        <input type="text" id="newName" placeholder="Produit / Name (Pull)">
+      </div>
+      <div class="inputs">
+        <input type="text" id="newSku" placeholder="Référence / SKU (PULL AR-195)">
+        <input type="number" id="newPrice" inputmode="numeric" placeholder="Prix en DA">
       </div>
       <div class="inputs">
         <input type="text" id="newNameAr" class="ar-input" placeholder="الاسم بالعربية">
-        <input type="number" id="newPrice" inputmode="numeric" placeholder="Price in DA">
       </div>
       <button class="primary" id="newSave">Save product</button>
     </div>

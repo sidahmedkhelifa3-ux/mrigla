@@ -10,6 +10,7 @@ create table if not exists public.products (
   name        text not null,
   name_ar     text,
   sku         text,
+  brand       text,
   price       numeric(12,2),
   note        text,
   updated_at  timestamptz not null default now()
@@ -24,6 +25,7 @@ create table if not exists public.scans (
   code        text not null,
   name        text,
   sku         text,
+  brand       text,
   price       numeric(12,2),
   format      text,
   scanned_at  timestamptz not null default now()
@@ -41,6 +43,11 @@ create index if not exists scans_code_idx       on public.scans (code);
 -- phones; NOT fine if the page goes public. To lock it down, drop
 -- these four policies, turn on Supabase Auth, and recreate them
 -- with `to authenticated` instead of `to anon`.
+
+-- Safe migration for existing installations
+alter table if not exists public.products add column if not exists brand text;
+alter table if not exists public.scans    add column if not exists brand text;
+
 alter table public.products enable row level security;
 alter table public.scans    enable row level security;
 
@@ -67,12 +74,13 @@ alter publication supabase_realtime add table public.products;
 alter publication supabase_realtime add table public.scans;
 
 -- ---------- the tag this scanner was built from ---------------
-insert into public.products (code, name, name_ar, sku, price, note)
+insert into public.products (code, name, name_ar, sku, brand, price, note)
 values (
   '4458534760123',
   'Robe',
   'روب',
   'BASKAT Z8-1',
+  'Pyjama Dz',
   1600,
   'Pyjama Dz · 80% polyester, 20% coton · صنع في الجزائر'
 )

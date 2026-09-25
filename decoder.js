@@ -11,8 +11,12 @@
    amount of processing invents it back. The levers that
    genuinely extend range are therefore optical, and both are
    used here: capture at the highest resolution the camera
-   offers, and use the camera's own zoom to spend those pixels
-   on a smaller patch of the world.
+   offers, and let the user spend those pixels on a smaller
+   patch of the world with the zoom buttons.
+
+   Zoom is deliberately MANUAL. The camera never changes it on
+   its own: a viewfinder that moves while you are lining up a
+   tag is worse than a short reach.
 
    Occlusion is a harder wall. EAN-13, Code 39 and ITF carry NO
    error correction — the check digit detects a misread, it
@@ -43,7 +47,6 @@
   var MAX_UPSCALE  = 2.2;   // lets the tight passes magnify
   var FRAME_BUDGET = 30;    // ms of decoding per frame
   var WIDEN_MS     = 3500;  // no read this long -> enable every format
-  var REACH_MS     = 2200;  // no read this long -> zoom further out/in
   var HINT_MS      = 1600;
   var QUIET_MS     = 1500;
   var DARK_LUMA    = 46, DIM_LUMA = 70, FLAT_EDGE = 9;
@@ -90,7 +93,7 @@
     this.widened = false;
     this.lastHitAt = 0; this.startedAt = 0; this.frames = 0;
     this.lastHintAt = 0; this.lastHint = ""; this.torchAuto = false;
-    this.zoom = null; this.zoomCaps = null; this.zoomAuto = false;
+    this.zoom = null; this.zoomCaps = null;
     this.native = null; this.zxing = null; this.pending = null;
   }
 
@@ -256,40 +259,18 @@
     return c;
   };
 
-  FastDecoder.prototype.setZoom = function(z, fromUser){
+  /* Only ever called from the zoom buttons. Nothing in the engine
+     changes zoom by itself — see the note at the top. */
+  FastDecoder.prototype.setZoom = function(z){
     if(!this.track || !this.zoomCaps) return Promise.resolve(false);
     var caps = this.zoomCaps;
     z = Math.max(caps.min, Math.min(caps.max, z));
     var self = this;
-    if(fromUser) this.zoomAuto = false;     // stop reaching once they take over
     return this.track.applyConstraints({ advanced: [{ zoom: z }] }).then(function(){
       self.zoom = z;
       if(self.onZoom) self.onZoom(z, caps);
       return true;
     }).catch(function(){ return false; });
-  };
-
-  /* Nothing read for a while and the camera can zoom? Reach further.
-     Steps out to 3x, then falls back, so a tag that is too far AND a
-     tag that is too close both get found without the user thinking. */
-  FastDecoder.prototype._reach = function(){
-    if(!this.zoomCaps || !this.running) return;
-    var now = performance.now();
-    if(now - this.lastHitAt < REACH_MS || now - this.startedAt < REACH_MS) return;
-    if(now - (this._reachedAt || 0) < 1200) return;
-    this._reachedAt = now;
-
-    var caps = this.zoomCaps;
-    var ladder = [caps.min, Math.min(caps.max, caps.min * 2), Math.min(caps.max, caps.min * 3)];
-    this._rung = ((this._rung || 0) + 1) % ladder.length;
-    this.zoomAuto = true;
-    var z = ladder[this._rung];
-    var self = this;
-    this.setZoom(z).then(function(okZoom){
-      if(okZoom && self.onHint){
-        self.onHint(z <= caps.min + 0.01 ? "Back to wide." : "Reaching further — zoom " + z.toFixed(1) + "×.");
-      }
-    });
   };
 
   /* ---------- picture quality, for coaching and auto-torch ---------- */
@@ -442,16 +423,12 @@
       if(hit && hit.text){
         self.lastHitAt = performance.now();
         self.lastHint = "";
-        if(self.zoomAuto){ self.zoomAuto = false; }   // it worked — stop hunting
         if(self._confirm(hit) && self.onHit) self.onHit(hit.text, hit.format);
-      } else {
-        self._reach();
-        if(!self.widened && performance.now() - self.startedAt > WIDEN_MS &&
-           performance.now() - self.lastHitAt > WIDEN_MS){
-          self._widen().then(function(){
-            if(self.onHint) self.onHint("Now trying every barcode type.");
-          });
-        }
+      } else if(!self.widened && performance.now() - self.startedAt > WIDEN_MS &&
+                performance.now() - self.lastHitAt > WIDEN_MS){
+        self._widen().then(function(){
+          if(self.onHint) self.onHint("Now trying every barcode type.");
+        });
       }
       self._schedule();
     }).catch(function(){
@@ -468,7 +445,6 @@
     this.startedAt = performance.now();
     this.lastHitAt = 0; this.cursor = 0; this.bestPass = 0;
     this.frames = 0; this.torchAuto = false; this.pending = null;
-    this._rung = 0; this.zoomAuto = false;
 
     this._readZoomCaps();
     if(this.zoomCaps && this.onZoom) this.onZoom(this.zoom, this.zoomCaps);

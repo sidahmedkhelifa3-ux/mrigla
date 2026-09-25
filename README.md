@@ -1,8 +1,8 @@
 # Pyjama Dz Tag Scanner
 
-A barcode scanner for clothing tags. Scan a tag with a phone camera, the product name
-lands in a list, and scanning the same tag again counts it up. Built around EAN-13 tags
-like `4458534760123` (Robe / روب, BASKAT Z8-1, 1600 DA).
+An intelligent camera & barcode scanner for clothing tags. Scans the complete barcode (code-barres),
+the reference/SKU, the brand name (marque), and the price directly from the label in one smart sweep.
+Built around clothing tags like `4458534760123` (Pyjama Dz · Robe / روب, BASKAT Z8-1, 1600 DA).
 
 ---
 
@@ -25,7 +25,7 @@ database open on a laptop — they stay in step.
 | `config.js` | **The only file you normally edit.** Supabase URL and key. |
 | `common.js` | Shared helpers — grouping, totals, check digits, barcode drawing. |
 | `decoder.js` | The fast decode engine — cropping, scaling, format strategy. |
-| `ocr.js` | Reads the printed name, reference and price off the label. |
+| `ocr.js` | Intelligent OCR: reads brand name, reference/SKU, garment name, price and barcode digits. |
 | `store.js` | Storage. Supabase when configured, browser storage otherwise. |
 | `scanner.js` | The scanner page. |
 | `database.js` | The database page, printing and PDF. |
@@ -211,8 +211,13 @@ that distance the detail is not faint — it is not in the image at all, and no 
 puts it back. The only real levers are optical, and both are used: capture at the
 highest resolution the camera offers, and use the camera's own zoom to spend those
 pixels on a smaller patch of the world. Hence the **zoom buttons on the viewfinder**
-(1× / 2× / 3× / max), and the automatic "reach" that steps zoom up when nothing has
-read for a couple of seconds and drops back the moment something does.
+(1× / 2× / 3× / max).
+
+**Zoom is manual on purpose.** The engine never changes it by itself. An earlier
+version zoomed automatically when nothing read for a couple of seconds; it was removed
+because a viewfinder that moves while you are lining up a tag is worse than a short
+reach. `node selftest.js decoder` has a test that fails if anything ever zooms without
+a button press.
 
 **A partly covered 1D barcode is unrecoverable.** EAN-13, Code 39 and ITF carry *no*
 error correction. The check digit detects a misread; it cannot rebuild missing bars.
@@ -260,8 +265,7 @@ Each frame works through the plan under a ~30 ms budget and **resumes next frame
 it ran out**, so coverage is wide without the frame rate collapsing. The window that
 last succeeded is tried first next time, so once it locks on, it stays fast.
 
-**And it adapts.** When it is dark it turns the torch on by itself. After 2.2 s with no
-read it steps the zoom up to reach further, and resets the moment something reads. After
+**And it adapts.** When it is dark it turns the torch on by itself. After
 3.5 s it enables every barcode format. When scanning stalls it measures the picture and
 says what is wrong: *too dark*, *glare on the tag*, *bars look blurred — the tag may be
 too far to resolve*. Tapping the viewfinder forces a refocus, which fixes the most common

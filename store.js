@@ -164,6 +164,7 @@
       var map = {};
       (res.data || []).forEach(function(p){
         map[p.code] = {
+          brand: p.brand || (p.note && p.note.indexOf("Marque: ") > -1 ? p.note.replace(/^.*Marque:\s*([^\s•]+).*/, "$1") : ""),
           name: p.name, nameAr: p.name_ar, sku: p.sku,
           price: num(p.price), note: p.note
         };
@@ -183,7 +184,7 @@
         if(res.error) throw res.error;
         self._scans = (res.data || []).map(function(r){
           return {
-            id: r.id, code: r.code, name: r.name, sku: r.sku,
+            id: r.id, code: r.code, name: r.name, sku: r.sku, brand: r.brand || "",
             price: num(r.price), at: r.scanned_at
           };
         });
@@ -193,13 +194,18 @@
 
   CloudStore.prototype.addScan = function(rec){
     var self = this;
-    return this.sb.from("scans").insert({
+    var row = {
       code: rec.code,
       name: rec.name,
       sku: rec.sku,
       price: rec.price,
       format: rec.format || null,
       scanned_at: rec.at || new Date().toISOString()
+    };
+    if(rec.brand) row.brand = rec.brand;
+    return this.sb.from("scans").insert(row).catch(function(){
+      delete row.brand;
+      return self.sb.from("scans").insert(row);
     }).then(function(res){
       if(res.error) throw res.error;
       return self._loadScans();
@@ -208,15 +214,21 @@
 
   CloudStore.prototype.setProduct = function(code, rec){
     var self = this;
-    return this.sb.from("products").upsert({
+    var noteVal = rec.note || (rec.brand ? "Marque: " + rec.brand : null);
+    var row = {
       code: code,
       name: rec.name,
       name_ar: rec.nameAr || null,
       sku: rec.sku || null,
       price: rec.price,
-      note: rec.note || null,
+      note: noteVal,
       updated_at: new Date().toISOString()
-    }, { onConflict: "code" }).then(function(res){
+    };
+    if(rec.brand) row.brand = rec.brand;
+    return this.sb.from("products").upsert(row, { onConflict: "code" }).catch(function(){
+      delete row.brand;
+      return self.sb.from("products").upsert(row, { onConflict: "code" });
+    }).then(function(res){
       if(res.error) throw res.error;
       return self._loadCatalog();
     });

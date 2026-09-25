@@ -60,6 +60,7 @@
       for(var i=0;i<s.rows.length;i++){
         var r = s.rows[i];
         var sub = [esc(r.code)];
+        if(r.brand) sub.push('<span class="brand-sub">' + esc(r.brand) + '</span>');
         if(r.sku) sub.push(esc(r.sku));
         if(r.unit != null) sub.push(money(r.unit) + " DA each");
         sub.push(esc(clock(r.at)));
@@ -95,7 +96,7 @@
       html += '<div class="row">' +
         '<div class="col">' +
           '<span class="pname">' + esc(it.name || "unnamed") + '</span>' +
-          '<span class="name">' + esc(c) + (it.sku ? " · " + esc(it.sku) : "") +
+          '<span class="name">' + esc(c) + (it.brand ? " · <strong>" + esc(it.brand) + "</strong>" : "") + (it.sku ? " · " + esc(it.sku) : "") +
             (it.nameAr ? ' · <span class="ar">' + esc(it.nameAr) + '</span>' : "") + '</span>' +
         '</div>' +
         '<span class="amt">' + money(it.price) + (typeof it.price === "number" ? " DA" : "") + '</span>' +
@@ -140,7 +141,7 @@
         "<td class=\"n mono\">" + (r.line == null ? "—" : money(r.line)) + "</td>" +
       "</tr>";
     }
-    if(!rows) rows = '<tr><td colspan="7" class="none">Aucun article sur la liste.</td></tr>';
+    if(!rows) rows = '<tr><td colspan="8" class="none">Aucun article sur la liste.</td></tr>';
 
     $("sheet").innerHTML =
       '<div class="sheet-head">' +
@@ -155,12 +156,12 @@
       '</div>' +
       '<table class="sheet-table">' +
         '<thead><tr>' +
-          '<th class="n">#</th><th>Produit</th><th>Code-barres</th><th>Référence</th>' +
+          '<th class="n">#</th><th>Marque</th><th>Produit</th><th>Code-barres</th><th>Référence</th>' +
           '<th class="n">Qté</th><th class="n">P.U. DA</th><th class="n">Total DA</th>' +
         '</tr></thead>' +
         '<tbody>' + rows + '</tbody>' +
         '<tfoot><tr>' +
-          '<td colspan="4">Total</td>' +
+          '<td colspan="5">Total</td>' +
           '<td class="n">' + s.pieces + '</td>' +
           '<td class="n"></td>' +
           '<td class="n mono">' + (s.priced ? "" : "≥") + money(s.total) + '</td>' +

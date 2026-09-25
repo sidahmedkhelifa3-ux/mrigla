@@ -388,3 +388,122 @@ footer{font-family:var(--mono);font-size:10.5px;color:var(--muted);text-align:ce
 @media (prefers-reduced-motion: reduce){
   .laser,.row.fresh{animation:none}
 }
+
+/* ============================================================
+   Intelligent Camera & Brand Enhancements
+   ============================================================ */
+.smart-btn{
+  background: linear-gradient(135deg, #c4362a, #e3594b);
+  color: #fff;
+  border: 1px solid rgba(255,255,255,0.15);
+  box-shadow: 0 2px 10px rgba(196, 54, 42, 0.35);
+  font-weight: 700;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.smart-btn:hover{
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(196, 54, 42, 0.45);
+  border-color: rgba(255,255,255,0.3);
+}
+.smart-btn:active{
+  transform: translateY(1px);
+}
+
+.smart-hud{
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  z-index: 10;
+  pointer-events: none;
+  background: rgba(16, 15, 13, 0.82);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 252, 244, 0.14);
+  border-radius: 12px;
+  padding: 9px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+.smart-hud[hidden]{ display: none !important; }
+.smart-hud.pulse{
+  animation: hudPulse 0.4s ease-out;
+}
+@keyframes hudPulse{
+  0%{ transform: scale(0.98); }
+  50%{ transform: scale(1.02); }
+  100%{ transform: scale(1); }
+}
+.smart-hud-title{
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #EDE7DA;
+}
+.smart-hud-dot{
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #62BF8B;
+  box-shadow: 0 0 8px #62BF8B;
+  animation: pulseDot 1.8s infinite;
+}
+@keyframes pulseDot{
+  0%,100%{ opacity: 1; transform: scale(1); }
+  50%{ opacity: 0.4; transform: scale(0.8); }
+}
+.smart-hud-chips{
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.hud-chip{
+  background: rgba(255, 252, 244, 0.08);
+  border: 1px solid rgba(255, 252, 244, 0.12);
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 11.5px;
+  color: #EDE7DA;
+  font-family: var(--mono);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.hud-chip b{ color: #9A9180; font-weight: 500; }
+.hud-chip i{ font-style: normal; color: #FFFCF4; font-weight: 600; }
+
+.brand-row{
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.brand-badge-pill{
+  background: color-mix(in srgb, var(--laser) 15%, transparent);
+  color: var(--laser);
+  border: 1px solid color-mix(in srgb, var(--laser) 35%, transparent);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 2px 7px;
+  border-radius: 4px;
+  line-height: 1.2;
+}
+.brand-badge-name{
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: 0.02em;
+}
+.brand-sub, .bname{
+  font-weight: 600;
+  color: var(--ink);
+}

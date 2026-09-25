@@ -40,7 +40,7 @@
     if(!current) return;
     if(switching){
       // a different tag — drop anything suggested for the previous one
-      ["newName","newSku","newNameAr","newPrice"].forEach(function(id){
+      ["newBrand","newName","newSku","newNameAr","newPrice"].forEach(function(id){
         if($(id).classList.contains("prefilled")) $(id).value = "";
       });
       clearPrefillMarks();
@@ -54,6 +54,14 @@
     PDZ.drawBars($("tBars"), code);
     $("tUnknown").hidden = known;
     $("fieldName").hidden = !known;
+
+    var brand = (known && item.brand) ? item.brand : (current && current.brand ? current.brand : "");
+    if($("tBrand")) $("tBrand").textContent = brand || "—";
+    if($("tBrandField")) $("tBrandField").textContent = brand || "—";
+    if($("brandRow")) $("brandRow").hidden = !brand;
+    if($("fieldBrand")) $("fieldBrand").hidden = !brand;
+    if($("dashBrand")) $("dashBrand").hidden = !brand;
+
     $("tName").textContent = known ? item.name : "Unknown item";
     $("tNameAr").textContent = known && item.nameAr ? item.nameAr : "—";
     $("tSku").textContent = known && item.sku ? item.sku : "";
@@ -90,6 +98,7 @@
     for(var i = 0; i < Math.min(s.rows.length, 5); i++){
       var r = s.rows[i];
       var sub = [esc(r.code)];
+      if(r.brand) sub.push('<strong class="bname">' + esc(r.brand) + '</strong>');
       if(r.sku) sub.push(esc(r.sku));
       sub.push(esc(clock(r.at)));
       html += '<div class="row' + (r.code === freshCode ? ' fresh' : '') + '">' +
@@ -127,6 +136,17 @@
     }
   }
 
+    /* ================= smart HUD ================= */
+  function updateSmartHud(code, brand, sku, price){
+    var hud = $("smartHud");
+    if(!hud) return;
+    if($("hudValCode")) $("hudValCode").textContent = code || "—";
+    if($("hudValBrand")) $("hudValBrand").textContent = brand || "—";
+    if($("hudValRef")) $("hudValRef").textContent = sku || "—";
+    if($("hudValPrice")) $("hudValPrice").textContent = price != null ? money(price) + " DA" : "—";
+    hud.hidden = false;
+  }
+
   /* ================= reading the printed text ================= */
   /* The barcode is only a number. The name, reference and price are
      ink beside it — so point OCR at the same picture and offer what
@@ -135,7 +155,18 @@
   var lastStill = null;      // the photo, when a photo was scanned
   var ocrDoneFor = {};       // one automatic attempt per code
 
+  /* The frame captured at the instant the barcode was decoded. Grabbing
+     it later means grabbing whatever the phone is pointed at by then. */
+  var shotCode = null, shotCanvas = null;
+
+  function grabShot(code){
+    if(!(decoder && running)) return;
+    var c = decoder.capture(1800);
+    if(c){ shotCode = code; shotCanvas = c; }
+  }
+
   function ocrSource(){
+    if(current && shotCode === current.code && shotCanvas) return shotCanvas;
     if(decoder && running){
       var c = decoder.capture(1800);
       if(c) return c;
@@ -153,7 +184,7 @@
   }
 
   function clearPrefillMarks(){
-    ["newName","newSku","newNameAr","newPrice"].forEach(function(id){
+    ["newBrand","newName","newSku","newNameAr","newPrice"].forEach(function(id){
       $(id).classList.remove("prefilled");
     });
   }
@@ -182,25 +213,55 @@
       if(!current || current.code !== code) return;   // they moved on
 
       var filled = [];
+      if(markPrefilled("newBrand", found.brand)) filled.push("brand");
       if(markPrefilled("newName",  found.name))  filled.push("name");
       if(markPrefilled("newSku",   found.sku))   filled.push("reference");
       if(markPrefilled("newPrice", found.price)) filled.push("price");
 
+      if(found.brand && current) current.brand = found.brand;
+      if(found.sku && current) current.sku = found.sku;
+      updateSmartHud(code, found.brand, found.sku, found.price);
+
       if(filled.length){
-        var warn = (found.digits && found.digits !== code)
-          ? " The digits it read under the bars (" + esc(found.digits) +
-            ") do not match the scanned code — check the row carefully."
-          : "";
+        // Put it on the ticket too, so the camera visibly read the name & brand
+        if(found.brand){
+          if($("tBrand")) $("tBrand").textContent = found.brand;
+          if($("tBrandField")) $("tBrandField").textContent = found.brand;
+          if($("brandRow")) $("brandRow").hidden = false;
+          if($("fieldBrand")) $("fieldBrand").hidden = false;
+          if($("dashBrand")) $("dashBrand").hidden = false;
+        }
+        if(found.name || found.sku){
+          $("tName").textContent = found.name || "Read from the tag";
+          $("fieldName").hidden = false;
+          $("tSku").textContent = found.sku || "";
+        }
+        if(found.price != null) $("tPrice").innerHTML = money(found.price) + '<span>DA</span>';
+        $("tSub").textContent = "read from the tag — tap Save to keep it";
+
+        var mismatch = found.digits && found.digits !== code;
         $("ocrNote").innerHTML = "Read from the tag: " + filled.join(", ") +
-          ". <b>Check it, then save.</b>" + warn;
+          ". <b>Check it, then save.</b>" +
+          (mismatch ? " The digits it read under the bars (" + esc(found.digits) +
+                      ") do not match the scanned code — check carefully." : "");
+        say("<b>" + esc(found.name || found.sku || code) + "</b>" +
+            (found.price != null ? " · " + money(found.price) + " DA" : "") +
+            " read from the tag. <em>Tap Save to keep it.</em>");
       } else {
         $("ocrNote").textContent = found.lines.length
           ? "Could not pick out a name or price. Type them in."
           : "No text found — hold the label steadier and try again.";
+        if(auto) say("<b>" + esc(code) + "</b> is on the list, but the printed name was not legible. Type it in below.", true);
       }
     }).catch(function(err){
       $("btnOcr").disabled = false;
       $("ocrNote").textContent = "Text reading failed — " + errText(err) + ". Type the details in.";
+      if(auto){
+        ocrDoneFor[code] = false;               // let a retry happen
+        // still confirm the scan itself — only the name reading failed
+        say("<b>" + esc(code) + "</b> is on the list, but the name could not be read. " +
+            "Tap <em>Read the tag</em> to retry, or type it in.", true);
+      }
     });
   }
 
@@ -209,10 +270,11 @@
   $("btnOcr").addEventListener("click", function(){ readTag(false); });
 
   /* ================= writes ================= */
-  function saveScan(code, format){
+  function saveScan(code, format, brand){
     var item = catalog[code];
     return store.addScan({
       code: code,
+      brand: item ? (item.brand || null) : (brand || null),
       name: item ? (item.name || null) : null,
       sku: item ? (item.sku || null) : null,
       price: item && typeof item.price === "number" ? item.price : null,
@@ -227,6 +289,7 @@
     if(!current || !store) return;
     var code = current.code;
     var rec = {
+      brand: $("newBrand") ? $("newBrand").value.trim() : "",
       name: $("newName").value.trim() || "Unnamed",
       nameAr: $("newNameAr").value.trim(),
       sku: $("newSku").value.trim(),
@@ -235,7 +298,7 @@
     $("newSave").disabled = true;
     store.setProduct(code, rec).then(function(){
       $("newSave").disabled = false;
-      ["newName","newSku","newNameAr","newPrice"].forEach(function(id){ $(id).value = ""; });
+      ["newBrand","newName","newSku","newNameAr","newPrice"].forEach(function(id){ $(id).value = ""; });
       renderTicket(code, "", "saved");
       say("<b>Saved.</b> " + esc(rec.name) + " is priced from now on" +
           (mode === "cloud" ? " — on every phone." : "."));
@@ -268,32 +331,62 @@
 
   /* ================= accept a code ================= */
   var lastCode = "", lastAt = 0;
-  function accept(code, format, quiet){
+  function accept(code, format, quiet, ocrPreload){
     code = String(code).trim();
     if(!code || !store) return;
     var now = Date.now();
-    if(code === lastCode && now - lastAt < 2500) return;   // one tag, one count
+    if(code === lastCode && now - lastAt < 2500 && !ocrPreload) return;   // one tag, one count
     lastCode = code; lastAt = now;
 
     var item = catalog[code];
     if(!quiet){ hit(); beep(!!item); }
 
     freshCode = code;
-    saveScan(code, format);
+    saveScan(code, format, ocrPreload ? ocrPreload.brand : null);
+    if(ocrPreload && ocrPreload.brand && !current) current = { code: code, brand: ocrPreload.brand };
+    else if(ocrPreload && ocrPreload.brand && current) current.brand = ocrPreload.brand;
+
     renderTicket(code, format, item ? "just scanned" : "just scanned — not in the catalog");
 
-    // local writes land synchronously; cloud writes are still in flight
+    if(ocrPreload){
+      markPrefilled("newBrand", ocrPreload.brand);
+      markPrefilled("newName",  ocrPreload.name);
+      markPrefilled("newSku",   ocrPreload.sku);
+      markPrefilled("newPrice", ocrPreload.price);
+      if(ocrPreload.brand){
+        if($("tBrand")) $("tBrand").textContent = ocrPreload.brand;
+        if($("tBrandField")) $("tBrandField").textContent = ocrPreload.brand;
+        if($("brandRow")) $("brandRow").hidden = false;
+        if($("fieldBrand")) $("fieldBrand").hidden = false;
+        if($("dashBrand")) $("dashBrand").hidden = false;
+      }
+      if(ocrPreload.name || ocrPreload.sku){
+        $("tName").textContent = ocrPreload.name || "Read from the tag";
+        $("fieldName").hidden = false;
+        $("tSku").textContent = ocrPreload.sku || "";
+      }
+      if(ocrPreload.price != null) $("tPrice").innerHTML = money(ocrPreload.price) + '<span>DA</span>';
+      updateSmartHud(code, ocrPreload.brand, ocrPreload.sku, ocrPreload.price);
+    }
+
     var seen = 0;
     for(var i=0;i<scans.length;i++){ if(scans[i].code === code) seen++; }
     var qty = seen + (mode === "local" ? 0 : 1);
-    say(item
-      ? "<b>" + esc(item.name) + "</b> added to the list" + (qty > 1 ? " — now ×" + qty + "." : ".")
-      : "<b>" + esc(code) + "</b> is on the list. Reading the printed text on the tag…");
+    var brandPrefix = (item && item.brand) ? item.brand + " · " : (ocrPreload && ocrPreload.brand ? ocrPreload.brand + " · " : "");
 
-    // A code nobody has named yet: try to read the label, once.
-    if(!item && !ocrDoneFor[code]){
+    if(item){
+      say("<b>" + esc(brandPrefix + item.name) + "</b> added to the list" + (qty > 1 ? " — now ×" + qty + "." : "."));
+    } else if(ocrPreload && (ocrPreload.name || ocrPreload.sku || ocrPreload.brand)){
+      say("✨ <b>" + esc(brandPrefix + (ocrPreload.name || ocrPreload.sku || code)) + "</b>" +
+          (ocrPreload.price != null ? " · " + money(ocrPreload.price) + " DA" : "") +
+          " read from the tag. <em>Tap Save to keep it.</em>");
+    } else if(!ocrDoneFor[code]){
       ocrDoneFor[code] = true;
-      setTimeout(function(){ readTag(true); }, 180);
+      grabShot(code);
+      say("<b>" + esc(code) + "</b> — reading the name on the tag…");
+      setTimeout(function(){ readTag(true); }, 60);
+    } else {
+      say("<b>" + esc(code) + "</b> is on the list. Give it a name so it reads properly.");
     }
   }
 
@@ -346,10 +439,9 @@
       decoder = FastDecoder.create(video);
       return decoder.start(stream, accept, onCoach, onAutoTorch, onZoom);
     }).then(function(){
-      var caps = decoder.zoomRange();
-      say(caps
-        ? "<b>Scanning.</b> Sweeping the whole picture — zoom in below if the tag is far."
-        : "<b>Scanning.</b> Sweeping the whole picture at several zooms.");
+      say(decoder.zoomRange()
+        ? "<b>Scanning.</b> Sweeping the whole picture — tap a zoom if the tag is far."
+        : "<b>Scanning.</b> Sweeping the whole picture at several scales.");
     }).catch(function(err){
       var n = (err && err.name) || "";
       if(n === "NotAllowedError") say("<b>Camera permission denied.</b> Allow it, or use <em>Scan a photo</em>.", true);
@@ -395,7 +487,7 @@
     if(!b || !decoder) return;
     var caps = decoder.zoomRange();
     if(!caps) return;
-    decoder.setZoom(zoomFor(b.getAttribute("data-zoom"), caps), true);
+    decoder.setZoom(zoomFor(b.getAttribute("data-zoom"), caps));
   });
 
   /* Tap the picture to force a refocus — the usual reason a close tag
@@ -437,6 +529,47 @@
   }
 
   btnStart.addEventListener("click", function(){ running ? stopCamera() : startCamera(); });
+  /* ================= smart camera scan ================= */
+  function doSmartScan(){
+    if(!running){
+      startCamera();
+      say("<b>Camera started.</b> Point it at the tag and tap <em>⚡ Scan intelligent</em>.");
+      return;
+    }
+    say("<b>⚡ Scanning tag…</b> reading barcode, reference, and brand.");
+    hit();
+    var c = decoder ? decoder.capture(1800) : null;
+    if(!c){
+      say("<b>Frame not ready.</b> Hold the phone steady and retry.", true);
+      return;
+    }
+    var smartBtn = $("btnSmartScan");
+    if(smartBtn) smartBtn.disabled = true;
+
+    FastDecoder.decodeImage(c, null).then(function(barHit){
+      var barCode = barHit ? barHit.text : null;
+      return TagOCR.read(c, barCode, function(stage, pct){
+        var p = pct ? " " + Math.round(pct * 100) + "%" : "";
+        say("<b>⚡ Smart reading:</b> " + String(stage).replace(/_/g, " ") + p);
+      }).then(function(ocrRes){
+        if(smartBtn) smartBtn.disabled = false;
+        var code = barCode || (ocrRes && ocrRes.digits) || null;
+        var fmt = (barHit && barHit.format) || (code ? PDZ.guessFormat(code) : "");
+        if(code){
+          accept(code, fmt, false, ocrRes);
+        } else {
+          say("<b>No tag recognized.</b> Move camera closer to the barcode & label.", true);
+        }
+      });
+    }).catch(function(err){
+      if(smartBtn) smartBtn.disabled = false;
+      say("<b>Smart scan failed:</b> " + esc(errText(err)), true);
+    });
+  }
+
+  var btnSmartScan = $("btnSmartScan");
+  if(btnSmartScan) btnSmartScan.addEventListener("click", doSmartScan);
+
 
   /* ================= photo ================= */
   filePhoto.addEventListener("change", function(){
@@ -457,11 +590,31 @@
 
   function decodeImage(img){
     FastDecoder.decodeImage(img, function(pass, total){
-      // pass 1 is instant; only report once it is actually working at it
       if(pass > 1) say("<b>Still looking…</b> trying a different framing (" + pass + " of " + total + ")");
     }).then(function(hit){
-      if(hit && hit.text) accept(hit.text, hit.format);
-      else say("<b>No barcode found in that photo.</b> Fill more of the frame with the tag, keep the bars straight, and avoid glare.", true);
+      if(hit && hit.text){
+        if(global_TagOCR()){
+          TagOCR.read(img, hit.text).then(function(ocrRes){
+            accept(hit.text, hit.format, false, ocrRes);
+          }).catch(function(){
+            accept(hit.text, hit.format);
+          });
+        } else {
+          accept(hit.text, hit.format);
+        }
+      } else if(global_TagOCR()){
+        TagOCR.read(img, null).then(function(ocrRes){
+          if(ocrRes && ocrRes.digits){
+            accept(ocrRes.digits, PDZ.guessFormat(ocrRes.digits), false, ocrRes);
+          } else {
+            say("<b>No barcode found in that photo.</b> Fill more of the frame with the tag, keep the bars straight, and avoid glare.", true);
+          }
+        }).catch(function(){
+          say("<b>No barcode found in that photo.</b> Fill more of the frame with the tag, keep the bars straight, and avoid glare.", true);
+        });
+      } else {
+        say("<b>No barcode found in that photo.</b> Fill more of the frame with the tag, keep the bars straight, and avoid glare.", true);
+      }
     }).catch(function(err){
       say("<b>Photo decoding failed</b> — " + esc(errText(err)) + ". Use <em>Type code</em>.", true);
     });
