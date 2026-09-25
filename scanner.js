@@ -494,7 +494,46 @@
     btnTorch.hidden = true;
     $("zoomBar").hidden = true;
     torchOn = false;
+    scope.style.aspectRatio = "";     // back to the idle placeholder shape
   }
+
+  /* Open the back camera the way the phone's own camera app would.
+     Only IDEAL hints — no hard minimums — because a `min` the sensor
+     cannot meet makes getUserMedia fail outright or drop into an odd
+     mode. If the preferred request is refused, fall back to plainer
+     ones rather than giving up. */
+  function openCamera(){
+    var attempts = [
+      { video: { facingMode: { ideal: "environment" },
+                 width:  { ideal: 1920 },
+                 height: { ideal: 1080 } }, audio: false },
+      { video: { facingMode: { ideal: "environment" } }, audio: false },
+      { video: true, audio: false }
+    ];
+    var i = 0;
+    function attempt(lastErr){
+      if(i >= attempts.length) return Promise.reject(lastErr || new Error("no camera"));
+      var want = attempts[i++];
+      return navigator.mediaDevices.getUserMedia(want).catch(function(err){
+        var n = err && err.name;
+        // a refusal is final — retrying would just nag the user
+        if(n === "NotAllowedError" || n === "SecurityError") throw err;
+        return attempt(err);
+      });
+    }
+    return attempt(null);
+  }
+
+  /* Show the whole picture the camera gives, at its own shape. The box
+     used to be locked to 4:3 with object-fit:cover, which cropped a
+     16:9 stream by about a quarter — it looked zoomed in, and the
+     aiming brackets no longer matched the area the decoder scans. */
+  function fitPreview(){
+    var vw = video.videoWidth, vh = video.videoHeight;
+    if(vw && vh) scope.style.aspectRatio = vw + " / " + vh;
+  }
+  video.addEventListener("loadedmetadata", fitPreview);
+  video.addEventListener("resize", fitPreview);
 
   function startCamera(){
     if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
@@ -503,19 +542,7 @@
     }
     say("<b>Opening the camera…</b> allow access when your browser asks.");
 
-    navigator.mediaDevices.getUserMedia({
-      // Reading distance is set by how many pixels land on each bar, so
-      // ask for as much sensor as the phone will give. The decoder crops
-      // and scales down before decoding, so the extra pixels cost little
-      // and buy real range.
-      video: {
-        facingMode: { ideal: "environment" },
-        width:      { ideal: 2560, min: 1280 },
-        height:     { ideal: 1440, min: 720 },
-        frameRate:  { ideal: 30, min: 20 }
-      },
-      audio: false
-    }).then(function(s){
+    openCamera().then(function(s){
       stream = s; video.srcObject = s;
       video.hidden = false; idle.hidden = true;
       scope.setAttribute("data-state","live");
@@ -524,6 +551,7 @@
       running = true;
       return video.play().catch(function(){});
     }).then(function(){
+      fitPreview();
       tuneCamera();
       setupTorch();
       decoder = FastDecoder.create(video);

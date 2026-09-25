@@ -95,7 +95,10 @@ header.bar{
   border:1px solid var(--rule);box-shadow:var(--shadow);
   display:grid;place-items:center;
 }
-.scope video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#0C0B0A}
+/* contain, not cover: show everything the camera sees. JS sets .scope's
+   aspect-ratio to the stream's own, so in practice there is nothing to
+   letterbox — and nothing gets cropped away either. */
+.scope video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#0C0B0A}
 .idle{
   position:relative;text-align:center;color:#B8AF9C;padding:24px 20px;
   display:flex;flex-direction:column;align-items:center;gap:14px;

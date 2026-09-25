@@ -684,6 +684,55 @@ tests.push(function linkShowsTheCount(done){
   done(null);
 });
 
+/* The camera must open the way the phone's own camera app does: ideal
+   hints only, and if the preferred request is refused, fall back rather
+   than fail. A permission refusal is final and must NOT be retried. */
+tests.push(function fallsBackToPlainerConstraints(done){
+  const asked = [];
+  sandbox.navigator.mediaDevices = {
+    getUserMedia(c){
+      asked.push(c);
+      // refuse anything that names a resolution, like a fussy sensor would
+      if(c.video && c.video.width) return Promise.reject({ name: "OverconstrainedError" });
+      return Promise.resolve({
+        getVideoTracks: () => [{ getCapabilities: () => ({}), getSettings: () => ({}),
+                                 applyConstraints: () => Promise.resolve(), stop(){} }],
+        getTracks: () => [{ stop(){} }]
+      });
+    }
+  };
+  document.getElementById("btnStart").dispatch("click");
+  setTimeout(() => {
+    if(asked.length < 2) return done("never fell back — only " + asked.length + " attempt(s)");
+    if(asked[0].video.width === undefined) return done("the first attempt should ask for a preferred size");
+    if(!asked.some(c => c.video === true || (c.video && !c.video.width)))
+      return done("no plain fallback was tried -> " + JSON.stringify(asked));
+    // no hard minimums anywhere: a `min` the sensor cannot meet fails outright
+    for(const c of asked){
+      const v = c.video;
+      if(v && typeof v === "object"){
+        if((v.width && v.width.min) || (v.height && v.height.min) || (v.frameRate && v.frameRate.min))
+          return done("a hard `min` constraint is still being requested");
+      }
+    }
+    done(null);
+  }, 120);
+});
+
+tests.push(function doesNotRetryAPermissionRefusal(done){
+  let calls = 0;
+  sandbox.navigator.mediaDevices = {
+    getUserMedia(){ calls++; return Promise.reject({ name: "NotAllowedError" }); }
+  };
+  document.getElementById("btnStart").dispatch("click");
+  setTimeout(() => {
+    if(calls !== 1) return done("asked " + calls + " times after a refusal — must ask once");
+    if(!/permission denied/i.test(status())) return done("wrong message -> " + status());
+    sandbox.navigator.mediaDevices = undefined;   // restore for later tests
+    done(null);
+  }, 120);
+});
+
 tests.push(function cameraWithoutMediaDevices(done){
   try{
     document.getElementById("btnStart").dispatch("click");
