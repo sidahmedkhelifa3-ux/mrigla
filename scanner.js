@@ -45,7 +45,7 @@
       });
       clearPrefillMarks();
       $("ocrNote").textContent =
-        "the barcode is only a number — the name and price are printed beside it";
+        "the barcode is only a number — the reference and price are printed beside it";
     }
     code = current.code;
     var item = catalog[code], known = !!item;
@@ -62,9 +62,11 @@
     if($("fieldBrand")) $("fieldBrand").hidden = !brand;
     if($("dashBrand")) $("dashBrand").hidden = !brand;
 
-    $("tName").textContent = known ? item.name : "Unknown item";
+    // The REFERENCE identifies the product on these tags, so it is the
+    // headline. The descriptive name ("Robe") is secondary and optional.
+    $("tName").textContent = known ? (item.sku || item.name || "Unnamed") : "Unknown item";
     $("tNameAr").textContent = known && item.nameAr ? item.nameAr : "—";
-    $("tSku").textContent = known && item.sku ? item.sku : "";
+    $("tSku").textContent = known && item.name ? item.name : "";
     $("tPrice").innerHTML = (known && typeof item.price === "number")
       ? money(item.price) + '<span>DA</span>' : '—<span>DA</span>';
     if(sub !== undefined) $("tSub").textContent = sub;
@@ -97,16 +99,19 @@
     var html = "";
     for(var i = 0; i < Math.min(s.rows.length, 5); i++){
       var r = s.rows[i];
+      // headline is the REFERENCE; the barcode, brand and descriptive
+      // name are the supporting line
       var sub = [esc(r.code)];
       if(r.brand) sub.push('<strong class="bname">' + esc(r.brand) + '</strong>');
-      if(r.sku) sub.push(esc(r.sku));
+      if(r.name) sub.push(esc(r.name));
       sub.push(esc(clock(r.at)));
       html += '<div class="row' + (r.code === freshCode ? ' fresh' : '') + '">' +
         '<div class="col">' +
-          '<span class="pname' + (r.name ? '' : ' none') + '">' + (r.name ? esc(r.name) : "Not named yet") + '</span>' +
+          '<span class="pname' + (r.title ? '' : ' none') + '">' +
+            (r.title ? esc(r.title) : "No reference yet") + '</span>' +
           '<span class="name">' + sub.join(" · ") + '</span>' +
         '</div>' +
-        (r.name ? "" : '<button class="namebtn" data-name="' + esc(r.code) + '">Name it</button>') +
+        (r.title ? "" : '<button class="namebtn" data-name="' + esc(r.code) + '">Add ref</button>') +
         '<div class="right">' +
           '<span class="qty' + (r.qty === 1 ? ' one' : '') + '">×' + r.qty + '</span>' +
           (r.line != null ? '<span class="amt">' + money(r.line) + ' DA</span>' : '') +
@@ -283,10 +288,10 @@
           if($("fieldBrand")) $("fieldBrand").hidden = false;
           if($("dashBrand")) $("dashBrand").hidden = false;
         }
-        if(found.name || found.sku){
-          $("tName").textContent = found.name || "Read from the tag";
+        if(found.sku || found.name){
+          $("tName").textContent = found.sku || found.name || "Read from the tag";
           $("fieldName").hidden = false;
-          $("tSku").textContent = found.sku || "";
+          $("tSku").textContent = found.sku ? (found.name || "") : "";
         }
         if(found.price != null) $("tPrice").innerHTML = money(found.price) + '<span>DA</span>';
         $("tSub").textContent = "read from the tag — tap Save to keep it";
@@ -296,7 +301,7 @@
           ". <b>Check it, then save.</b>" +
           (mismatch ? " The digits it read under the bars (" + esc(found.digits) +
                       ") do not match the scanned code — check carefully." : "");
-        say("<b>" + esc(found.name || found.sku || code) + "</b>" +
+        say("<b>" + esc(found.sku || found.name || code) + "</b>" +
             (found.price != null ? " · " + money(found.price) + " DA" : "") +
             " read from the tag. <em>Tap Save to keep it.</em>");
       } else {
@@ -362,11 +367,19 @@
   $("newSave").addEventListener("click", function(){
     if(!current || !store) return;
     var code = current.code;
+    // The reference identifies the product; the descriptive name is
+    // optional, so a tag with only a reference saves perfectly well.
+    var ref  = $("newSku").value.trim();
+    var desc = $("newName").value.trim();
+    if(!ref && !desc){
+      say("<b>Enter the reference</b> printed on the tag before saving.", true);
+      return;
+    }
     var rec = {
       brand: $("newBrand") ? $("newBrand").value.trim() : "",
-      name: $("newName").value.trim() || "Unnamed",
+      name: desc || ref,
       nameAr: $("newNameAr").value.trim(),
-      sku: $("newSku").value.trim(),
+      sku: ref || desc,
       price: $("newPrice").value === "" ? null : Number($("newPrice").value)
     };
     $("newSave").disabled = true;
@@ -374,7 +387,7 @@
       $("newSave").disabled = false;
       ["newBrand","newName","newSku","newNameAr","newPrice"].forEach(function(id){ $(id).value = ""; });
       renderTicket(code, "", "saved");
-      say("<b>Saved.</b> " + esc(rec.name) + " is priced from now on" +
+      say("<b>Saved.</b> " + esc(rec.sku) + " is priced from now on" +
           (mode === "cloud" ? " — on every phone." : "."));
     }).catch(function(err){
       $("newSave").disabled = false;
@@ -437,10 +450,10 @@
         if($("fieldBrand")) $("fieldBrand").hidden = false;
         if($("dashBrand")) $("dashBrand").hidden = false;
       }
-      if(ocrPreload.name || ocrPreload.sku){
-        $("tName").textContent = ocrPreload.name || "Read from the tag";
+      if(ocrPreload.sku || ocrPreload.name){
+        $("tName").textContent = ocrPreload.sku || ocrPreload.name || "Read from the tag";
         $("fieldName").hidden = false;
-        $("tSku").textContent = ocrPreload.sku || "";
+        $("tSku").textContent = ocrPreload.sku ? (ocrPreload.name || "") : "";
       }
       if(ocrPreload.price != null) $("tPrice").innerHTML = money(ocrPreload.price) + '<span>DA</span>';
       updateSmartHud(code, ocrPreload.brand, ocrPreload.sku, ocrPreload.price);
@@ -452,9 +465,9 @@
     var brandPrefix = (item && item.brand) ? item.brand + " · " : (ocrPreload && ocrPreload.brand ? ocrPreload.brand + " · " : "");
 
     if(item){
-      say("<b>" + esc(brandPrefix + item.name) + "</b> added to the list" + (qty > 1 ? " — now ×" + qty + "." : "."));
+      say("<b>" + esc(brandPrefix + (item.sku || item.name || code)) + "</b> added to the list" + (qty > 1 ? " — now ×" + qty + "." : "."));
     } else if(ocrPreload && (ocrPreload.name || ocrPreload.sku || ocrPreload.brand)){
-      say("✨ <b>" + esc(brandPrefix + (ocrPreload.name || ocrPreload.sku || code)) + "</b>" +
+      say("✨ <b>" + esc(brandPrefix + (ocrPreload.sku || ocrPreload.name || code)) + "</b>" +
           (ocrPreload.price != null ? " · " + money(ocrPreload.price) + " DA" : "") +
           " read from the tag. <em>Tap Save to keep it.</em>");
     } else if(!ocrDoneFor[code]){

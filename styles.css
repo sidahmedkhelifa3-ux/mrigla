@@ -288,6 +288,14 @@ input[type="text"],input[type="number"]{
 input.ar-input{font-family:var(--ar)}
 
 /* a value OCR suggested — visibly not yet confirmed by a person */
+/* The reference is the field that matters on these tags — it leads
+   the form and carries a little more weight than the optional ones. */
+input.primaryField{
+  font-weight:600;
+  flex:1 1 200px;
+  border-color:var(--muted);
+}
+
 /* Low confidence: the parser is unsure, so the field reads as a
    proposal to check rather than an answer. Never a silent guess. */
 input.prefilled.lowconf{

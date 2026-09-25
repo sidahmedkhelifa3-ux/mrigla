@@ -41,7 +41,13 @@
   "use strict";
 
   var RETAIL = ["EAN_13", "EAN_8", "UPC_A", "UPC_E"];
-  var EXTRA  = ["CODE_128", "CODE_39", "ITF", "CODABAR"];
+  /* Widening adds CODE_128 and CODE_39 only. ITF and CODABAR are left
+     OUT on purpose: neither carries a usable check digit, both decode
+     noise into plausible numbers, and clothing tags do not use them.
+     Enable them explicitly with FastDecoder.create(video, {risky:true})
+     if a supplier's labels ever need it. */
+  var EXTRA  = ["CODE_128", "CODE_39"];
+  var RISKY  = ["ITF", "CODABAR"];
 
   var TARGET_PX    = 760;   // decode width; more than this buys nothing
   var MAX_UPSCALE  = 2.2;   // lets the tight passes magnify
@@ -78,7 +84,8 @@
     return P;
   }
 
-  function FastDecoder(video){
+  function FastDecoder(video, opts){
+    this.allowRisky = !!(opts && opts.risky);
     this.video   = video;
     this.canvas  = document.createElement("canvas");
     this.ctx     = this.canvas.getContext("2d", { willReadFrequently: true });
@@ -139,7 +146,7 @@
   FastDecoder.prototype._widen = function(){
     if(this.widened) return Promise.resolve();
     this.widened = true;
-    this.formats = RETAIL.concat(EXTRA);
+    this.formats = RETAIL.concat(EXTRA).concat(this.allowRisky ? RISKY : []);
     this.native = null; this.zxing = null;
     var self = this;
     return this._setupNative().then(function(){ self._setupZxing(); });
@@ -444,14 +451,71 @@
     return ((10 - (sum % 10)) % 10) === +code.slice(-1);
   }
 
-  /* A code whose check digit adds up is trusted on the first read.
-     Anything else must come back identical twice — a partly-seen tag
-     must never put a wrong number on the list. */
+  /* How many identical reads a symbology needs before it is believed.
+     EAN/UPC carry a check digit, so one verified read is proof. The
+     others carry none (or a weak one) and WILL decode noise — fabric
+     weave, text edges, half of a neighbouring barcode — into a
+     plausible number, so they have to be seen repeatedly and
+     identically before they count. ITF is the worst offender: any
+     run of alternating bars can satisfy it. */
+  var CONFIRMATIONS = {
+    EAN_13: 1, EAN_8: 1, UPC_A: 1, UPC_E: 1,
+    CODE_128: 2,        // has an internal checksum
+    CODE_39: 2,
+    CODABAR: 3,
+    ITF: 3              // no check digit, decodes noise readily
+  };
+  var CONFIRM_WINDOW = 2200;   // ms: corroborating reads must be close together
+
+  /* Shapes a real code of that symbology can actually take. */
+  function plausible(text, format){
+    var f = (format || "").toUpperCase();
+    if(!text) return false;
+    if(f.indexOf("ITF") > -1){
+      // ITF encodes digit PAIRS, so an odd length is impossible, and
+      // anything short is almost always noise.
+      return /^\d+$/.test(text) && text.length >= 8 && text.length % 2 === 0;
+    }
+    if(f.indexOf("CODE_39") > -1 || f.indexOf("CODABAR") > -1) return text.length >= 4;
+    if(f.indexOf("CODE_128") > -1) return text.length >= 4;
+    return text.length >= 4;
+  }
+
+  /* Returns true only when the read is trustworthy. */
   FastDecoder.prototype._confirm = function(hit){
-    if(checkDigitOk(hit.text, hit.format) !== false){ this.pending = null; return true; }
-    if(this.pending && this.pending.text === hit.text){ this.pending = null; return true; }
-    this.pending = { text: hit.text, at: performance.now() };
-    return false;
+    var f = (hit.format || "").toUpperCase();
+    var chk = checkDigitOk(hit.text, f);
+    var now = performance.now();
+
+    // A check digit that does NOT add up is a misread, full stop. Never
+    // accept it, however many times it repeats — a systematic misread
+    // repeats perfectly.
+    if(chk === false){
+      this.pending = null;
+      this.rejected = { text: hit.text, reason: "checksum", at: now };
+      return false;
+    }
+
+    // Verified check digit: proof in one read.
+    if(chk === true){ this.pending = null; return true; }
+
+    // No check digit available for this symbology.
+    if(!plausible(hit.text, f)){
+      this.pending = null;
+      this.rejected = { text: hit.text, reason: "implausible", at: now };
+      return false;
+    }
+
+    var need = CONFIRMATIONS[f] || 2;
+    if(this.pending && this.pending.text === hit.text &&
+       now - this.pending.at < CONFIRM_WINDOW){
+      this.pending.count++;
+      this.pending.at = now;
+      if(this.pending.count >= need){ this.pending = null; return true; }
+      return false;
+    }
+    this.pending = { text: hit.text, count: 1, at: now };
+    return need <= 1;
   };
 
   /* ---------- the loop ---------- */
@@ -646,7 +710,7 @@
   }
 
   global.FastDecoder = {
-    create: function(video){ return new FastDecoder(video); },
+    create: function(video, opts){ return new FastDecoder(video, opts); },
     decodeImage: function(source, onProgress){
       if(global.BarcodeDetector){
         return new global.BarcodeDetector().detect(source).then(function(res){

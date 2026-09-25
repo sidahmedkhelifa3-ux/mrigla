@@ -59,15 +59,16 @@
       var html = "";
       for(var i=0;i<s.rows.length;i++){
         var r = s.rows[i];
+        // headline is the REFERENCE; barcode, brand and descriptive name support it
         var sub = [esc(r.code)];
         if(r.brand) sub.push('<span class="brand-sub">' + esc(r.brand) + '</span>');
-        if(r.sku) sub.push(esc(r.sku));
+        if(r.name) sub.push(esc(r.name));
         if(r.unit != null) sub.push(money(r.unit) + " DA each");
         sub.push(esc(clock(r.at)));
         html += '<div class="row">' +
           '<div class="col">' +
-            '<span class="pname' + (r.name ? '' : ' none') + '">' +
-              (r.name ? esc(r.name) : "Not named yet") + '</span>' +
+            '<span class="pname' + (r.title ? '' : ' none') + '">' +
+              (r.title ? esc(r.title) : "No reference yet") + '</span>' +
             '<span class="name">' + sub.join(" · ") + '</span>' +
           '</div>' +
           '<div class="right">' +
@@ -95,8 +96,8 @@
       var c = codes[i], it = catalog[c];
       html += '<div class="row">' +
         '<div class="col">' +
-          '<span class="pname">' + esc(it.name || "unnamed") + '</span>' +
-          '<span class="name">' + esc(c) + (it.brand ? " · <strong>" + esc(it.brand) + "</strong>" : "") + (it.sku ? " · " + esc(it.sku) : "") +
+          '<span class="pname">' + esc(it.sku || it.name || "no reference") + '</span>' +
+          '<span class="name">' + esc(c) + (it.brand ? " · <strong>" + esc(it.brand) + "</strong>" : "") + (it.name ? " · " + esc(it.name) : "") +
             (it.nameAr ? ' · <span class="ar">' + esc(it.nameAr) + '</span>' : "") + '</span>' +
         '</div>' +
         '<span class="amt">' + money(it.price) + (typeof it.price === "number" ? " DA" : "") + '</span>' +
@@ -130,12 +131,15 @@
     var rows = "";
     for(var i=0;i<s.rows.length;i++){
       var r = s.rows[i];
+      // 8 cells, matching the 8 headers below. Reference leads: it is
+      // what identifies the product on these tags.
       rows += "<tr>" +
         "<td class=\"n\">" + (i+1) + "</td>" +
-        "<td>" + (r.name ? esc(r.name) : "<i>sans nom</i>") +
+        "<td class=\"mono ref\">" + esc(r.sku || "—") + "</td>" +
+        "<td>" + esc(r.brand || "—") + "</td>" +
+        "<td>" + (r.name ? esc(r.name) : "—") +
           (r.nameAr ? ' <span class="ar">' + esc(r.nameAr) + "</span>" : "") + "</td>" +
         "<td class=\"mono\">" + esc(r.code) + "</td>" +
-        "<td class=\"mono\">" + esc(r.sku || "—") + "</td>" +
         "<td class=\"n\">" + r.qty + "</td>" +
         "<td class=\"n mono\">" + (r.unit == null ? "—" : money(r.unit)) + "</td>" +
         "<td class=\"n mono\">" + (r.line == null ? "—" : money(r.line)) + "</td>" +
@@ -156,7 +160,7 @@
       '</div>' +
       '<table class="sheet-table">' +
         '<thead><tr>' +
-          '<th class="n">#</th><th>Marque</th><th>Produit</th><th>Code-barres</th><th>Référence</th>' +
+          '<th class="n">#</th><th>Référence</th><th>Marque</th><th>Produit</th><th>Code-barres</th>' +
           '<th class="n">Qté</th><th class="n">P.U. DA</th><th class="n">Total DA</th>' +
         '</tr></thead>' +
         '<tbody>' + rows + '</tbody>' +
@@ -223,10 +227,10 @@
         y += 6;
 
         doc.setFont("helvetica", "bold"); doc.setFontSize(8.5);
-        doc.text("#",         COLS[0], y);
-        doc.text("PRODUIT",   COLS[1], y);
-        doc.text("CODE",      COLS[2], y);
-        doc.text("REF",       COLS[3], y);
+        doc.text("#",          COLS[0], y);
+        doc.text("REFERENCE",  COLS[1], y);
+        doc.text("PRODUIT",    COLS[2], y);
+        doc.text("CODE",       COLS[3], y);
         doc.text("QTE",       COLS[4] + 12, y, { align: "right" });
         doc.text("P.U. DA",   COLS[5] + 18, y, { align: "right" });
         doc.text("TOTAL DA",  R,       y, { align: "right" });
@@ -252,13 +256,16 @@
 
         // jsPDF's standard fonts are Latin-only, so anything outside
         // that range is dropped rather than drawn as tofu.
-        var name = String(r.name || "sans nom").replace(/[^\x20-\x7EÀ-ɏ]/g, "").trim() || "sans nom";
-        name = doc.splitTextToSize(name, 52)[0];
+        var latin = function(v, fallback){
+          return String(v || "").replace(/[^\x20-\x7EÀ-ɏ]/g, "").trim() || fallback;
+        };
+        var ref  = doc.splitTextToSize(latin(r.sku, "-"), 44)[0];
+        var name = doc.splitTextToSize(latin(r.name, "-"), 30)[0];
 
-        doc.text(String(i + 1),                COLS[0], y);
-        doc.text(name,                          COLS[1], y);
-        doc.text(String(r.code),                COLS[2], y);
-        doc.text(String(r.sku || "-").slice(0, 16), COLS[3], y);
+        doc.text(String(i + 1),  COLS[0], y);
+        doc.text(ref,            COLS[1], y);
+        doc.text(name,           COLS[2], y);
+        doc.text(String(r.code), COLS[3], y);
         doc.text(String(r.qty),                 COLS[4] + 12, y, { align: "right" });
         doc.text(r.unit == null ? "-" : money(r.unit), COLS[5] + 18, y, { align: "right" });
         doc.text(r.line == null ? "-" : money(r.line), R,  y, { align: "right" });

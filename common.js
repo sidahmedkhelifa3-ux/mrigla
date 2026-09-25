@@ -126,12 +126,18 @@
       var u = unitPrice(g, catalog);
       if(typeof u === "number") total += u * g.qty; else priced = false;
       pieces += g.qty;
+      var ref  = it.sku  || g.sku  || "";
+      var desc = it.name || g.name || "";
       rows.push({
         code: g.code,
         brand: it.brand || g.brand || "",
-        name: it.name || g.name || "",
+        name: desc,
         nameAr: it.nameAr || "",
-        sku: it.sku || g.sku || "",
+        sku: ref,
+        // the reference is what identifies a product on these tags, so it
+        // is the headline; the descriptive name is secondary when present
+        ref: ref,
+        title: ref || desc || "",
         qty: g.qty,
         unit: u,
         line: (typeof u === "number") ? u * g.qty : null,
@@ -143,14 +149,15 @@
   }
 
   function csv(rows){
-    var out = ["brand,name,code,sku,qty,unit_price_da,line_total_da,last_scanned"];
+    // reference first: it is what identifies the product
+    var out = ["reference,name,brand,barcode,qty,unit_price_da,line_total_da,last_scanned"];
     for(var i=0;i<rows.length;i++){
       var r = rows[i];
       out.push([
-        '"' + String(r.brand || "").replace(/"/g,'""') + '"',
-        '"' + String(r.name || "").replace(/"/g,'""') + '"',
-        r.code,
         '"' + String(r.sku || "").replace(/"/g,'""') + '"',
+        '"' + String(r.name || "").replace(/"/g,'""') + '"',
+        '"' + String(r.brand || "").replace(/"/g,'""') + '"',
+        r.code,
         r.qty,
         (r.unit == null ? "" : r.unit),
         (r.line == null ? "" : r.line),

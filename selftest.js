@@ -369,6 +369,84 @@ if(PAGE === "ocr"){
     }, 500);
   });
 
+  /* ---- trust gate ----
+     A symbology with no check digit (ITF, Code 39) will decode noise
+     into a plausible number. It must never reach the app on a single
+     read, and a FAILING check digit must never reach it at all. These
+     drive _confirm directly, since the loop is timing-dependent. */
+
+  tests.push(function acceptsAVerifiedCheckDigitAtOnce(done){
+    const d = sandbox.FastDecoder.create({ videoWidth: 640, videoHeight: 480, readyState: 4 });
+    // 4458534760123 is a valid EAN-13
+    if(!d._confirm({ text: "4458534760123", format: "EAN_13" }))
+      return done("a verified EAN-13 should be trusted on the first read");
+    done(null);
+  });
+
+  tests.push(function neverAcceptsABadCheckDigit(done){
+    const d = sandbox.FastDecoder.create({ videoWidth: 640, videoHeight: 480, readyState: 4 });
+    const bad = { text: "4458534760124", format: "EAN_13" };   // last digit wrong
+    for(let i = 0; i < 5; i++){
+      if(d._confirm(bad))
+        return done("a failing checksum was accepted after " + (i + 1) + " read(s)" +
+                    " — a systematic misread repeats perfectly");
+    }
+    done(null);
+  });
+
+  tests.push(function itfNeedsThreeIdenticalReads(done){
+    const d = sandbox.FastDecoder.create({ videoWidth: 640, videoHeight: 480, readyState: 4 });
+    const noise = { text: "12345678", format: "ITF" };
+    if(d._confirm(noise)) return done("ITF was accepted on the FIRST read — this is the bug");
+    if(d._confirm(noise)) return done("ITF was accepted on the second read");
+    if(!d._confirm(noise)) return done("ITF should be accepted on the third identical read");
+    done(null);
+  });
+
+  tests.push(function differingReadsNeverAccumulate(done){
+    const d = sandbox.FastDecoder.create({ videoWidth: 640, videoHeight: 480, readyState: 4 });
+    // random noise gives a different number each time: never accept any of it
+    for(const t of ["12345678", "87654321", "11223344", "55667788"]){
+      if(d._confirm({ text: t, format: "ITF" }))
+        return done("accepted " + t + " — differing reads must not corroborate");
+    }
+    done(null);
+  });
+
+  tests.push(function rejectsImplausibleShapes(done){
+    const d = sandbox.FastDecoder.create({ videoWidth: 640, videoHeight: 480, readyState: 4 });
+    // ITF encodes digit pairs: an odd length cannot exist
+    for(let i = 0; i < 4; i++){
+      if(d._confirm({ text: "1234567", format: "ITF" }))
+        return done("accepted an odd-length ITF, which cannot be real");
+    }
+    // and a 2-digit "code" is noise
+    for(let i = 0; i < 4; i++){
+      if(d._confirm({ text: "42", format: "ITF" }))
+        return done("accepted a 2-digit ITF");
+    }
+    done(null);
+  });
+
+  tests.push(function riskyFormatsAreOffByDefault(done){
+    const d = sandbox.FastDecoder.create({ videoWidth: 640, videoHeight: 480, readyState: 4 });
+    return d._widen().then(() => {
+      if(d.formats.indexOf("ITF") > -1)
+        return done("ITF was switched on automatically -> " + d.formats.join(","));
+      if(d.formats.indexOf("CODABAR") > -1)
+        return done("CODABAR was switched on automatically");
+      if(d.formats.indexOf("CODE_128") === -1)
+        return done("CODE_128 should still be added when widening");
+      const r = sandbox.FastDecoder.create({ videoWidth: 640, videoHeight: 480, readyState: 4 },
+                                           { risky: true });
+      return r._widen().then(() => {
+        if(r.formats.indexOf("ITF") === -1)
+          return done("opting in to risky formats should add ITF");
+        done(null);
+      });
+    }).catch(e => done("widen threw", e));
+  });
+
   /* The barcode's box is the spatial anchor for OCR. It is produced in
      the coordinates of whichever cropped, scaled, possibly rotated
      window found the code, so it must come back as sane 0..1 frame
@@ -433,9 +511,13 @@ if(PAGE === "ocr"){
     tests.push(function groupsTheSeededRows(done){
       setTimeout(() => {
         const list = document.getElementById("list").innerHTML;
-        if(!/Robe/.test(list))            return done("list: named product missing -> " + list);
+        // the REFERENCE headlines each row; the descriptive name supports it
+        if(!/BASKAT Z8-1/.test(list))     return done("list: the reference is missing -> " + list);
+        if(!/pname[^>]*>BASKAT Z8-1</.test(list))
+          return done("list: the reference should be the headline, not a footnote");
+        if(!/Robe/.test(list))            return done("list: the descriptive name should still show -> " + list);
         if(!/×2/.test(list))              return done("list: the two Robe scans did not group into ×2");
-        if(!/Not named yet/.test(list))   return done("list: the unknown code should show as unnamed");
+        if(!/No reference yet/.test(list)) return done("list: the unknown code should say it has no reference");
         if(document.getElementById("sCount").textContent !== "3")
           return done("totals: expected 3 pieces, got " + document.getElementById("sCount").textContent);
         if(document.getElementById("sItems").textContent !== "2")
@@ -574,9 +656,12 @@ tests.push(function readsTheNameAutomatically(done){
       return done("price not filled -> " + document.getElementById("newPrice").value);
     if(!document.getElementById("newName").classList.contains("prefilled"))
       return done("the suggested name is not marked as unconfirmed");
-    if(document.getElementById("tName").textContent !== "Pull")
-      return done("the ticket still does not show the name -> " +
+    // the REFERENCE is what identifies the product, so it headlines the ticket
+    if(document.getElementById("tName").textContent !== "PULL AR-195")
+      return done("the ticket headline should be the reference -> " +
                   document.getElementById("tName").textContent);
+    if(document.getElementById("newSku").value !== "PULL AR-195")
+      return done("reference not filled -> " + document.getElementById("newSku").value);
     done(null);
   }, 300);
 });
